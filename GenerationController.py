@@ -1,187 +1,234 @@
-import multiprocessing
-
-import Evolver
-import Simulator
-
 import os
+from concurrent.futures import ProcessPoolExecutor
 import torch
 torch.set_num_threads(1)
+import csv
+
+import Evolver
+import FitnessFunctions
 import NeuralNetwork
 import Simulator
-import numpy
-
-from concurrent.futures import ProcessPoolExecutor
 
 
-RETRIAL_AMOUNT = 2
-WORKER_COUNT   = 4
+RETRIAL_AMOUNT = 1
+WORKER_COUNT = 8
+ENABLE_MESSAGE_LOGGING = True
+
 
 def evaluate(args):
-    predators, prey, duration = args
+    predators, prey, duration, enableMessageLogging = args
 
-    sumPredKills = {genotypeID:0 for genotypeID, _ in predators}
-    sumPreyTime  = {genotypeID:0.0 for genotypeID, _ in prey}
+    sumPredatorFitness = {genotypeID: 0.0 for genotypeID, _ in predators}
+    sumPreyFitness = {genotypeID: 0.0 for genotypeID, _ in prey}
 
-    predNNs = [item[1] for item in predators]
-    preyNNs = [item[1] for item in prey]
+    predNNs     = [item[1] for item in predators]
+    preyNNs     = [item[1] for item in prey]
+    predatorIDs = [item[0] for item in predators]
+    preyIDs     = [item[0] for item in prey]
 
-    with Simulator.SupressOutput():
+    capturedMessageLog = None
+
+    with Simulator.SuppressOutput():
         sim = Simulator.Simulator(
-            numPredators = len(predNNs),
-            numPrey      = len(preyNNs),
-            simDuration  = duration,
-            gui          = False
+            numPredators=len(predNNs),
+            numPrey=len(preyNNs),
+            simDuration=duration,
+            gui=False
         )
 
         for _ in range(RETRIAL_AMOUNT):
-            telemetry = sim.runSimulation(predNNs, preyNNs)
+            telemetry = sim.runSimulation(
+                predatorNNs = predNNs,
+                preyNNs = preyNNs,
+                predatorGenotypeIDs = predatorIDs,
+                preyGenotypeIDs = preyIDs,
+            )
 
-            for i, (genotypeID, nn) in enumerate(predators):
-                sumPredKills[genotypeID] += telemetry["predatorCatches"][i]
+            for i, (genotypeID, _) in enumerate(predators):
+                predatorTelemetry = telemetry["predators"][i]
+                fitness = FitnessFunctions.calculatePredatorFitness(predatorTelemetry)
+                sumPredatorFitness[genotypeID] += fitness
 
-            for i, (genotypeID, nn) in enumerate(prey):
-                sumPreyTime[genotypeID] += telemetry["preyTimeAlive"][i]
+            for i, (genotypeID, _) in enumerate(prey):
+                preyTelemetry = telemetry["prey"][i]
+                fitness = FitnessFunctions.calculatePreyFitness(preyTelemetry)
+                sumPreyFitness[genotypeID] += fitness
+
+            if enableMessageLogging and capturedMessageLog is None:
+                capturedMessageLog = telemetry.get("messageLog", None)
 
         sim.disconnect()
 
-    finalPredResults = {genotypeID: k / RETRIAL_AMOUNT for genotypeID, k in sumPredKills.items()}
-    finalPreyResults = {genotypeID: k / RETRIAL_AMOUNT for genotypeID, k in sumPreyTime.items()}
-    return finalPredResults, finalPreyResults
+    finalPredatorResults = {
+        genotypeID: fitness / RETRIAL_AMOUNT
+        for genotypeID, fitness in sumPredatorFitness.items()
+    }
+    finalPreyResults = {
+        genotypeID: fitness / RETRIAL_AMOUNT
+        for genotypeID, fitness in sumPreyFitness.items()
+    }
+
+    return finalPredatorResults, finalPreyResults, capturedMessageLog
+
+def saveMessageLog(messageLog, generationNo):
+    if not messageLog:
+        return
+
+    logPath = os.path.join(
+        "Generations", f"Generation{generationNo}", "messageLog.csv"
+    )
+    with open(logPath , "w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=messageLog[0].keys())
+        writer.writeheader()
+        writer.writerows(messageLog)
 
 class GenerationController:
-    def __init__(self, predPopSize:int, preyPopSize:int, checkpointControl:int):
+    def __init__(self, predPopSize: int, preyPopSize: int, checkpointControl: int):
         self.generationNo = self._readRecentCheckpoint()
 
         self.predPopSize = predPopSize
         self.preyPopSize = preyPopSize
-
-        self.currentPredatorGeneration = []
-        self.nextPredatorGeneration    = []
-
-        self.currentPreyGeneration = []
-        self.nextPreyGeneration    = []
-
-        # each member of a generation represented as...
-        # {
-        #    "generationNo": parent1.get("generationNo", 0) + 1,
-        #    "genotypeID": None,
-        #    "genotypeNN": None,
-        #    "genotype": child,
-        #    "fitness": None
-        # }
-
         self.checkpointControl = checkpointControl
 
-        self.layer1 = {
-            "inputs"       : 14,
-            "outputs"      : 16,
-            "totalWeights" : 224,
-            "biases"       : 16
-        }
-        self.layer2 = {
-            "inputs"       : 16,
-            "outputs"      : 2,
-            "totalWeights" : 32,
-            "biases"       : 2
-         }
+        self.currentPredatorGeneration = []
+        self.currentPreyGeneration = []
+
+        self.nextPredatorGeneration = []
+        self.nextPreyGeneration = []
+
+        # Hardcoded RNN architecture layout
+        self.layerSpecs = [
+            {
+                "name": "encoder",
+                "inputs": 16,
+                "outputs": 32,
+                "totalWeights": 16 * 32,
+                "biases": 32
+            },
+            {
+                "name": "rnn_ih",
+                "inputs": 32,
+                "outputs": 32,
+                "totalWeights": 32 * 32,
+                "biases": 32
+            },
+            {
+                "name": "rnn_hh",
+                "inputs": 32,
+                "outputs": 32,
+                "totalWeights": 32 * 32,
+                "biases": 32
+            },
+            {
+                "name": "head",
+                "inputs": 32,
+                "outputs": 4,
+                "totalWeights": 32 * 4,
+                "biases": 4
+            }
+        ]
+
+        self.totalParams = sum(layer["totalWeights"] + layer["biases"] for layer in self.layerSpecs)
 
         self.predEvolver = Evolver.Evolver(
-            tournamentSize = 2,
-            mutationRate = 0.35,
-            sigma = 0.3
+            tournamentSize=2,
+            mutationRate=0.35,
+            sigma=0.3
         )
         self.preyEvolver = Evolver.Evolver(
-            tournamentSize = 2,
-            mutationRate = 0.35,
-            sigma = 0.3
+            tournamentSize=2,
+            mutationRate=0.35,
+            sigma=0.3
         )
 
-        if self.generationNo == 0: # create progenitor generation
+        if self.generationNo == 0:
             self._initProgenitorGeneration()
-        else: # load descendant generation
+        else:
             self._initDescendantGeneration()
 
     def _initProgenitorGeneration(self):
         self._createGenerationDirectory()
 
-        for i in range(0, self.predPopSize):
+        for i in range(self.predPopSize):
             weights, biases = self._createProgenitorNeuralNetwork()
-            nn = NeuralNetwork.NeuralNetwork(weights = weights, biases = biases, isPredator = True)
+            nn = NeuralNetwork.NeuralNetwork(weights=weights, biases=biases, isPredator=True)
             self.currentPredatorGeneration.append(
                 {
-                    "generationNo" : 0,
-                    "genotypeID"   : i,
-                    "genotypeNN"   : nn,
-                    "genotype"     : self._flattenNeuralNetwork(nn),
-                    "fitness"      : None
+                    "generationNo": 0,
+                    "genotypeID": i,
+                    "genotypeNN": nn,
+                    "genotype": self._flattenNeuralNetwork(nn),
+                    "fitness": None
                 }
             )
 
-        for i in range(0, self.preyPopSize):
+        for i in range(self.preyPopSize):
             weights, biases = self._createProgenitorNeuralNetwork()
-            nn = NeuralNetwork.NeuralNetwork(weights = weights, biases = biases, isPredator = False)
+            nn = NeuralNetwork.NeuralNetwork(weights=weights, biases=biases, isPredator=False)
             self.currentPreyGeneration.append(
                 {
-                    "generationNo" : 0,
-                    "genotypeID"   : i,
-                    "genotypeNN"   : nn,
-                    "genotype"     : self._flattenNeuralNetwork(nn),
-                    "fitness"      : None
+                    "generationNo": 0,
+                    "genotypeID": i,
+                    "genotypeNN": nn,
+                    "genotype": self._flattenNeuralNetwork(nn),
+                    "fitness": None
                 }
             )
 
     def _initDescendantGeneration(self):
         self.predPopSize, self.preyPopSize = self._readPopulationSize()
-
         self.currentPredatorGeneration, self.currentPreyGeneration = self._loadGeneration()
 
     def _readRecentCheckpoint(self) -> int:
+        path = os.path.join("Generations", "GenerationCount.txt")
+        if not os.path.exists(path):
+            return 0
+
         try:
-            with open("Generations/GenerationCount.txt", "r") as f:
-                return int(f.readline())
+            with open(path, "r") as f:
+                return int(f.readline().strip())
         except Exception as e:
             raise ValueError("Cannot load GenerationCount.txt") from e
 
     def _writeRecentCheckpoint(self, newCheckpoint) -> None:
+        path = os.path.join("Generations", "GenerationCount.txt")
         try:
-            with open(r"Generations\GenerationCount.txt", "w") as f:
+            with open(path, "w") as f:
                 f.write(str(newCheckpoint))
         except Exception as e:
             raise ValueError("Cannot write GenerationCount.txt") from e
 
     def _readPopulationSize(self) -> tuple:
-        currentGenDirectoryPath = f"Generations/Generation{self.generationNo}"
+        currentGenDirectoryPath = os.path.join("Generations", f"Generation{self.generationNo}")
         try:
-            predPopulationSize = 0
-            preyPopulationSize = 0
-            file = open(currentGenDirectoryPath + "/PredatorCount.txt", "r")
-            predPopulationSize = int(file.read())
-            file.close()
-            file = open(currentGenDirectoryPath + "/PreyCount.txt", "r")
-            preyPopulationSize = int(file.read())
-            file.close()
+            with open(os.path.join(currentGenDirectoryPath, "PredatorCount.txt"), "r") as file:
+                predPopulationSize = int(file.read())
+
+            with open(os.path.join(currentGenDirectoryPath, "PreyCount.txt"), "r") as file:
+                preyPopulationSize = int(file.read())
 
             return predPopulationSize, preyPopulationSize
         except Exception as e:
             raise ValueError(f"Cannot read population counts from {currentGenDirectoryPath}") from e
 
     def _createProgenitorNeuralNetwork(self) -> tuple:
-        totalParams = self.layer1["totalWeights"] + self.layer2["totalWeights"] + self.layer1["biases"] + self.layer2["biases"]
-        genotype = torch.randn(totalParams)
+        genotype = torch.randn(self.totalParams)
         weights, biases = self._unflattenNeuralNetwork(genotype)
         return weights, biases
 
     def _saveGeneration(self) -> None:
         self._createGenerationDirectory()
+
         predWeights = []
-        predBiases  = []
+        predBiases = []
         preyWeights = []
-        preyBiases  = []
+        preyBiases = []
 
         for indiv in self.currentPredatorGeneration:
             weights, biases = self._unflattenNeuralNetwork(indiv["genotype"])
             predWeights.append(weights)
             predBiases.append(biases)
+
         for indiv in self.currentPreyGeneration:
             weights, biases = self._unflattenNeuralNetwork(indiv["genotype"])
             preyWeights.append(weights)
@@ -190,12 +237,19 @@ class GenerationController:
         self._saveNeuralNetworks(predWeights, predBiases, preyWeights, preyBiases)
 
     def _saveNeuralNetworks(self, predWeights, predBiases, preyWeights, preyBiases) -> None:
-        generationPredDirectoryPath = "Generations/Generation" + str(self.generationNo) + "/Predators"
-        generationPreyDirectoryPath = "Generations/Generation" + str(self.generationNo) + "/Prey"
+        generationPredDirectoryPath = os.path.join("Generations", f"Generation{self.generationNo}", "Predators")
+        generationPreyDirectoryPath = os.path.join("Generations", f"Generation{self.generationNo}", "Prey")
+
         try:
             for i in range(self.predPopSize):
-                weightsPath = os.path.join(generationPredDirectoryPath, f"NeuralNetworks/Genotype{i}/Weights/weights.pt")
-                biasesPath = os.path.join(generationPredDirectoryPath, f"NeuralNetworks/Genotype{i}/Biases/biases.pt")
+                weightsPath = os.path.join(
+                    generationPredDirectoryPath,
+                    f"NeuralNetworks/Genotype{i}/Weights/weights.pt"
+                )
+                biasesPath = os.path.join(
+                    generationPredDirectoryPath,
+                    f"NeuralNetworks/Genotype{i}/Biases/biases.pt"
+                )
 
                 torch.save(predWeights[i], weightsPath)
                 torch.save(predBiases[i], biasesPath)
@@ -209,93 +263,108 @@ class GenerationController:
                     generationPreyDirectoryPath,
                     f"NeuralNetworks/Genotype{i}/Biases/biases.pt"
                 )
+
                 torch.save(preyWeights[i], weightsPath)
                 torch.save(preyBiases[i], biasesPath)
         except Exception as e:
-            raise ValueError(f"! Error saving binary data at generation {self.generationNo}: {e}")
+            raise ValueError(f"Error saving binary data at generation {self.generationNo}: {e}") from e
 
     def _loadGeneration(self) -> list:
         predPopulation = []
         preyPopulation = []
 
-        for genotypeID in range(0, self.predPopSize):
-            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator = True)
+        for genotypeID in range(self.predPopSize):
+            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator=True)
             predPopulation.append(
                 {
-                    "generationNo" : self.generationNo,
-                    "genotypeID"   : genotypeID,
-                    "genotypeNN"   : nn,
-                    "genotype"     : self._flattenNeuralNetwork(nn),
-                    "fitness"      : None
+                    "generationNo": self.generationNo,
+                    "genotypeID": genotypeID,
+                    "genotypeNN": nn,
+                    "genotype": self._flattenNeuralNetwork(nn),
+                    "fitness": None
                 }
             )
-        for genotypeID in range(0, self.preyPopSize):
-            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator = False)
+
+        for genotypeID in range(self.preyPopSize):
+            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator=False)
             preyPopulation.append(
                 {
-                    "generationNo" : self.generationNo,
-                    "genotypeID" : genotypeID,
-                    "genotypeNN" : nn,
-                    "genotype" : self._flattenNeuralNetwork(nn),
-                    "fitness" : None
+                    "generationNo": self.generationNo,
+                    "genotypeID": genotypeID,
+                    "genotypeNN": nn,
+                    "genotype": self._flattenNeuralNetwork(nn),
+                    "fitness": None
                 }
             )
+
         return predPopulation, preyPopulation
 
-    def _flattenNeuralNetwork(self, nn:NeuralNetwork.NeuralNetwork) -> torch.Tensor:
+    def _flattenNeuralNetwork(self, nn: NeuralNetwork.NeuralNetwork) -> torch.Tensor:
         parameters = []
-        for i in range(len(nn.weights)):
-            parameters.append(nn.weights[i].flatten())
-            parameters.append(nn.biases[i].flatten())
+
+        for weightBlock, biasBlock in zip(nn.weights, nn.biases):
+            parameters.append(weightBlock.flatten())
+            parameters.append(biasBlock.flatten())
+
         return torch.cat(parameters)
 
-    def _unflattenNeuralNetwork(self, genotype:torch.Tensor) -> tuple:
+    def _unflattenNeuralNetwork(self, genotype: torch.Tensor) -> tuple:
         unflattenedWeights = []
         unflattenedBiases = []
-        j = 0
 
-        for layer in [self.layer1, self.layer2]:
-            inDim, outDim = layer["inputs"], layer["outputs"]
+        j = 0
+        for layer in self.layerSpecs:
+            inDim = layer["inputs"]
+            outDim = layer["outputs"]
             weightsArea = layer["totalWeights"]
             biasArea = layer["biases"]
 
-            unflattenedWeights.append(
-                genotype[j : j + weightsArea].reshape(inDim, outDim)
-            )
-            j = j + weightsArea
-            unflattenedBiases.append(
-                genotype[j : j + biasArea].reshape(1, outDim)
-            )
-            j = j + biasArea
+            weightTensor = genotype[j: j + weightsArea].reshape(inDim, outDim)
+            j += weightsArea
+
+            biasTensor = genotype[j: j + biasArea].reshape(1, outDim)
+            j += biasArea
+
+            unflattenedWeights.append(weightTensor)
+            unflattenedBiases.append(biasTensor)
 
         return unflattenedWeights, unflattenedBiases
 
     def _createGenerationDirectory(self) -> None:
         try:
-            newGenerationDirectoryPath = "Generations/Generation" + str(self.generationNo)
-            os.makedirs(newGenerationDirectoryPath, exist_ok = True)
-            os.makedirs(newGenerationDirectoryPath + "/Predators", exist_ok = True)
-            os.makedirs(newGenerationDirectoryPath + "/Prey", exist_ok = True)
-            os.makedirs(newGenerationDirectoryPath + "/Predators/NeuralNetworks", exist_ok = True)
-            os.makedirs(newGenerationDirectoryPath + "/Prey/NeuralNetworks", exist_ok = True)
+            newGenerationDirectoryPath = os.path.join("Generations", f"Generation{self.generationNo}")
+            os.makedirs(newGenerationDirectoryPath, exist_ok=True)
+            os.makedirs(os.path.join(newGenerationDirectoryPath, "Predators"), exist_ok=True)
+            os.makedirs(os.path.join(newGenerationDirectoryPath, "Prey"), exist_ok=True)
+            os.makedirs(os.path.join(newGenerationDirectoryPath, "Predators", "NeuralNetworks"), exist_ok=True)
+            os.makedirs(os.path.join(newGenerationDirectoryPath, "Prey", "NeuralNetworks"), exist_ok=True)
 
             for i in range(self.predPopSize):
-                os.makedirs(newGenerationDirectoryPath + "/Predators/NeuralNetworks/" + "Genotype" + str(i), exist_ok = True)
-                os.makedirs(newGenerationDirectoryPath + "/Predators/NeuralNetworks/" + "Genotype" + str(i) + "/Weights", exist_ok = True)
-                os.makedirs(newGenerationDirectoryPath + "/Predators/NeuralNetworks/" + "Genotype" + str(i) + "/Biases", exist_ok = True)
+                os.makedirs(
+                    os.path.join(newGenerationDirectoryPath, "Predators", "NeuralNetworks", f"Genotype{i}", "Weights"),
+                    exist_ok=True
+                )
+                os.makedirs(
+                    os.path.join(newGenerationDirectoryPath, "Predators", "NeuralNetworks", f"Genotype{i}", "Biases"),
+                    exist_ok=True
+                )
 
             for i in range(self.preyPopSize):
-                os.makedirs(newGenerationDirectoryPath + "/Prey/NeuralNetworks/" + "Genotype" + str(i), exist_ok = True)
-                os.makedirs(newGenerationDirectoryPath + "/Prey/NeuralNetworks/" + "Genotype" + str(i) + "/Weights", exist_ok = True)
-                os.makedirs(newGenerationDirectoryPath + "/Prey/NeuralNetworks/" + "Genotype" + str(i) + "/Biases", exist_ok = True)
+                os.makedirs(
+                    os.path.join(newGenerationDirectoryPath, "Prey", "NeuralNetworks", f"Genotype{i}", "Weights"),
+                    exist_ok=True
+                )
+                os.makedirs(
+                    os.path.join(newGenerationDirectoryPath, "Prey", "NeuralNetworks", f"Genotype{i}", "Biases"),
+                    exist_ok=True
+                )
 
-            file = open(newGenerationDirectoryPath + "/PredatorCount.txt", "w")
-            file.write(str(self.predPopSize))
-            file.close()
+            with open(os.path.join(newGenerationDirectoryPath, "PredatorCount.txt"), "w") as file:
+                file.write(str(self.predPopSize))
 
-            file = open(newGenerationDirectoryPath + "/PreyCount.txt", "w")
-            file.write(str(self.preyPopSize))
-            file.close()
+            with open(os.path.join(newGenerationDirectoryPath, "PreyCount.txt"), "w") as file:
+                file.write(str(self.preyPopSize))
+
         except Exception as e:
             print(e)
 
@@ -307,28 +376,40 @@ class GenerationController:
             (p["genotypeID"], p["genotypeNN"]) for p in self.currentPreyGeneration
         ]
 
-        tasks = [
-            (predators, prey, 30.0) for _ in range(WORKER_COUNT)
-        ]
+        tasks = []
+        for workerIndex in range(WORKER_COUNT):
+            enableLoggingForThisWorker = ENABLE_MESSAGE_LOGGING and workerIndex == 0
+            tasks.append(
+                (predators, prey, 30.0, enableLoggingForThisWorker)
+            )
 
         with ProcessPoolExecutor(max_workers=WORKER_COUNT) as executor:
-            results = list(
-                executor.map(evaluate, tasks)
-            )
+            results = list(executor.map(evaluate, tasks))
 
         for p in self.currentPredatorGeneration:
             p["fitness"] = 0.0
         for p in self.currentPreyGeneration:
             p["fitness"] = 0.0
 
-        for predMap, preyMap in results:
+        savedMessageLog = None
+
+        for predMap, preyMap, messageLog in results:
             for genotypeID, fitness in predMap.items():
                 self.currentPredatorGeneration[genotypeID]["fitness"] += fitness / WORKER_COUNT
+
             for genotypeID, fitness in preyMap.items():
                 self.currentPreyGeneration[genotypeID]["fitness"] += fitness / WORKER_COUNT
 
+            if savedMessageLog is None and messageLog:
+                savedMessageLog = messageLog
+
+        if ENABLE_MESSAGE_LOGGING and savedMessageLog:
+            return savedMessageLog
+        else:
+            return None
+
     def run(self):
-        self._runSimulator()
+        messageLog = self._runSimulator()
 
         predData = calculateDescriptiveStatisticsFromGeneration(self.currentPredatorGeneration)
         preyData = calculateDescriptiveStatisticsFromGeneration(self.currentPreyGeneration)
@@ -336,37 +417,57 @@ class GenerationController:
         if self.generationNo % self.checkpointControl == 0:
             self._saveGeneration()
             self._writeRecentCheckpoint(self.generationNo)
+            if ENABLE_MESSAGE_LOGGING and messageLog:
+                saveMessageLog(messageLog, self.generationNo)
 
         self.currentPredatorGeneration = self.predEvolver.produceNextGeneration(self.currentPredatorGeneration)
-        self.currentPreyGeneration = self.predEvolver.produceNextGeneration(self.currentPreyGeneration)
+        self.currentPreyGeneration = self.preyEvolver.produceNextGeneration(self.currentPreyGeneration)
 
-        for i, pop in enumerate(self.currentPredatorGeneration):
+        for i, _ in enumerate(self.currentPredatorGeneration):
             self.currentPredatorGeneration[i]["genotypeID"] = i
             self.currentPredatorGeneration[i]["fitness"] = 0.0
+
             weights, biases = self._unflattenNeuralNetwork(
                 self.currentPredatorGeneration[i]["genotype"]
             )
-            self.currentPredatorGeneration[i]["genotypeNN"] = NeuralNetwork.NeuralNetwork(weights = weights, biases = biases, isPredator = True)
+            self.currentPredatorGeneration[i]["genotypeNN"] = NeuralNetwork.NeuralNetwork(
+                weights=weights,
+                biases=biases,
+                isPredator=True
+            )
 
-        for i, pop in enumerate(self.currentPreyGeneration):
+        for i, _ in enumerate(self.currentPreyGeneration):
             self.currentPreyGeneration[i]["genotypeID"] = i
             self.currentPreyGeneration[i]["fitness"] = 0.0
+
             weights, biases = self._unflattenNeuralNetwork(
                 self.currentPreyGeneration[i]["genotype"]
             )
-            self.currentPreyGeneration[i]["genotypeNN"] = NeuralNetwork.NeuralNetwork(weights = weights, biases = biases, isPredator = False)
+            self.currentPreyGeneration[i]["genotypeNN"] = NeuralNetwork.NeuralNetwork(
+                weights=weights,
+                biases=biases,
+                isPredator=False
+            )
+
         self.generationNo += 1
-        return (predData, preyData)
+        return predData, preyData
 
-def calculateDescriptiveStatisticsFromGeneration(generation:list) -> tuple:
-    best = 0.0
-    worst = 0.0
-    sum = 0.0
+
+def calculateDescriptiveStatisticsFromGeneration(generation: list) -> tuple:
+    if not generation:
+        raise ValueError("Generation is empty")
+
+    best = generation[0]["fitness"]
+    worst = generation[0]["fitness"]
+    fitnessSum = 0.0
+
     for indiv in generation:
-        sum += indiv["fitness"]
-        if indiv["fitness"] > best:
-            best = indiv["fitness"]
-        if indiv["fitness"] < worst:
-            worst = indiv["fitness"]
+        fitness = indiv["fitness"]
+        fitnessSum += fitness
 
-    return (sum/len(generation), best, worst)
+        if fitness > best:
+            best = fitness
+        if fitness < worst:
+            worst = fitness
+
+    return (fitnessSum / len(generation), best, worst)

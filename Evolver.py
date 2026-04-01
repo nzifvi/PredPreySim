@@ -40,7 +40,7 @@ class Evolver:
 
         return np.mean(distances) if distances else 0.0
 
-    def produceNextGeneration(self, currentGeneration: list, kFittest=5) -> list:
+    def produceNextGeneration(self, currentGeneration: list, kFittest=2) -> list:
         # INCREASED elites from 2 to 5 to preserve more genetic material
         nextGen = []
         populationSize = len(currentGeneration)
