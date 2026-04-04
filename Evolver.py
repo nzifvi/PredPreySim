@@ -40,7 +40,7 @@ class Evolver:
 
         return np.mean(distances) if distances else 0.0
 
-    def produceNextGeneration(self, currentGeneration: list, kFittest=2) -> list:
+    def produceNextGeneration(self, currentGeneration: list, kFittest=3) -> list:
         # INCREASED elites from 2 to 5 to preserve more genetic material
         nextGen = []
         populationSize = len(currentGeneration)
@@ -60,16 +60,16 @@ class Evolver:
         is_stagnant = self._checkStagnation(bestFitness)
         is_low_diversity = diversity < 5.0  # Threshold depends on your parameter scale
 
-        if is_stagnant or is_low_diversity:
-            # ADAPTIVE RESPONSE: Boost both mutation rate AND sigma
-            self.currentMutationRate = min(self.baseMutationRate * 2.0, 0.6)
-            self.currentSigma = min(self.baseSigma * 3.0, 0.5)
-            print(f" ! Diversity crisis: diversity={diversity:.2f}, variance={fitness_variance:.2f}")
-            print(f" ! Boosting mutation_rate={self.currentMutationRate:.3f}, sigma={self.currentSigma:.3f}")
-        else:
-            # Gradually return to base values
-            self.currentMutationRate = max(self.currentMutationRate * 0.9, self.baseMutationRate)
-            self.currentSigma = max(self.currentSigma * 0.9, self.baseSigma)
+        # if is_stagnant or is_low_diversity:
+        #     # ADAPTIVE RESPONSE: Boost both mutation rate AND sigma
+        #    self.currentMutationRate = min(self.baseMutationRate * 1.2, 0.18)
+        #    self.currentSigma = min(self.baseSigma * 1.3, 0.12)
+        #    print(f" ! Diversity crisis: diversity={diversity:.2f}, variance={fitness_variance:.2f}")
+        #    print(f" ! Boosting mutation_rate={self.currentMutationRate:.3f}, sigma={self.currentSigma:.3f}")
+        #else:
+        #    # Gradually return to base values
+        #    self.currentMutationRate = max(self.currentMutationRate * 0.9, self.baseMutationRate)
+        #    self.currentSigma = max(self.currentSigma * 0.9, self.baseSigma)
 
         # Preserve top performers (elitism)
         for i in range(0, kFittest):
@@ -107,14 +107,14 @@ class Evolver:
 
         # DIVERSITY INJECTION: Replace worst 10% with random immigrants every 5 generations
         if len(self.diversityHistory) % 5 == 0 and diversity < 10.0:
-            num_immigrants = max(1, populationSize // 10)
-            print(f" ! Injecting {num_immigrants} random immigrants")
-            for i in range(num_immigrants):
-                # Replace from the end (worst performers that weren't selected as elites)
-                idx = -(i + 1)
-                if abs(idx) <= len(nextGen) - kFittest:  # Don't replace elites
-                    nextGen[idx]["genotype"] = torch.randn_like(nextGen[idx]["genotype"])
-
+            pass
+            #num_immigrants = max(1, populationSize // 10)
+            #print(f" ! Injecting {num_immigrants} mutated immigrants")
+            #for i in range(num_immigrants):
+            #    # Replace from the end (worst performers that weren't selected as elites)
+            #    idx = -(i + 1)
+            #    if abs(idx) <= len(nextGen) - kFittest:  # Don't replace elites
+            #        nextGen[idx]["genotype"] = nextGen[idx]["genotype"] + torch.randn_like(nextGen[idx]["genotype"]) * 0.5
         return nextGen
 
     def _tournamentSelection(self, pop: list):
@@ -151,7 +151,7 @@ class Evolver:
         self.stagnationCounter += 1
 
         # REDUCED threshold from 10 to 5 generations - faster response
-        if self.stagnationCounter >= 5:
+        if self.stagnationCounter >= 10:
             return True
 
         return False

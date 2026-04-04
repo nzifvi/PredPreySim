@@ -9,13 +9,13 @@ class SimulationConfig:
     preyRadius: float          = 0.3
     boundaryMargin: float      = 1.0
     boundaryForce: float       = 50.0
-    visionRadius: float        = 6.0
-    communicationRadius: float = 5.0
+    visionRadius: float        = 4.0
+    communicationRadius: float = 7.5
 
 @dataclass
 class PreyConfig:
     arenaSize: float = 30.0
-    maxSpeed: float = 3.0
+    maxSpeed: float = 4.2
     catchDistance: float = 0.4
     predatorRadius: float = 0.2
     preyRadius: float = 0.1

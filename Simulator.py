@@ -3,6 +3,7 @@ import pybullet_data
 import numpy
 import time
 import torch
+
 import Agent
 import SimulationConfig
 import sys
@@ -113,9 +114,13 @@ class Simulator:
 
         self._initialiseInternalAgentState(predatorNNs, preyNNs)
 
-        preyCaught = [0] * self.numPredators
-        currentTime = 0.0
-        step = 0
+        preyCaught                       = [0] * self.numPredators
+        predatorTeamHuntScore            = [0.0] * self.numPredators
+        predatorNearestPreyDistanceSum   = [0.0] * self.numPredators
+        predatorNearestPreyDistanceCount = [0.0] * self.numPredators
+        preyGrouping                     = [0.0] * self.numPrey
+        currentTime                      = 0.0
+        step                             = 0
 
         while currentTime < self.simDuration:
             self._updateAllStates()
@@ -130,7 +135,13 @@ class Simulator:
             pybullet.stepSimulation()
 
             self._updateAllStates()
-            self._processCatches(preyCaught)
+            self._processCatches(preyCaught, predatorTeamHuntScore)
+            self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
+            self._updatePreyGrouping(preyGrouping)
+            self._updatePredatorPreyPressure(
+                    predatorNearestPreyDistanceSum,
+                    predatorNearestPreyDistanceCount
+                )
 
             if self.haveGUI and step % 5 == 0:
                 time.sleep(self.timeStep * 2)
@@ -141,15 +152,19 @@ class Simulator:
         return {
             "predators": [
                 {
-                    "catches": preyCaught[i],
-                    "timeActive": self.predators[i].timeAlive
+                    "catches"                 : preyCaught[i],
+                    "teamHuntScore"           : predatorTeamHuntScore[i] / max(step, 1),
+                    "meanNearestPreyDistance" : (
+                        predatorNearestPreyDistanceSum[i] / predatorNearestPreyDistanceCount[i] if predatorNearestPreyDistanceCount[i] > 0 else self.arenaSize
+                    )
                 }
                 for i in range(len(self.predators))
             ],
             "prey": [
                 {
-                    "timeAlive": self.prey[i].timeAlive,
-                    "alive": self.prey[i].isAlive
+                    "timeAlive"     : self.prey[i].timeAlive,
+                    "alive"         : self.prey[i].isAlive,
+                    "groupingScore" : preyGrouping[i]
                 }
                 for i in range(len(self.prey))
             ],
@@ -308,19 +323,34 @@ class Simulator:
             prey.applyAction(action)
             prey.stepTime(self.timeStep)
 
-    def _processCatches(self, preyCaught) -> None:
+    def _processCatches(self, preyCaught, predatorTeamHuntScore = None) -> None:
+        catchSupportRadius = 3.0
+
         for i, predator in enumerate(self.predators):
             for prey in self.prey:
                 if not prey.isAlive:
                     continue
 
                 dist = torch.norm(predator.position - prey.position)
-
                 if dist < self.catchDistance:
+                    nearbyPredatorIndices = []
+
+                    for j, otherPredator in enumerate(self.predators):
+                        if not otherPredator.isAlive:
+                            continue
+
+                        supportDist = torch.norm(otherPredator.position - prey.position).item()
+                        if supportDist < catchSupportRadius:
+                            nearbyPredatorIndices.append(j)
+
                     prey.kill()
                     prey.message = torch.zeros(1, 2, dtype=torch.float32)
                     prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
                     preyCaught[i] += 1
+
+                    if predatorTeamHuntScore is not None and len(nearbyPredatorIndices) >= 2:
+                        for predatorIndex in nearbyPredatorIndices:
+                            predatorTeamHuntScore[predatorIndex] += 5.0
 
     def disconnect(self):
         pybullet.disconnect()
@@ -352,3 +382,63 @@ class Simulator:
                 "visibleAllyCount" : int(visibleAllyCount),
             }
         )
+
+    def _updatePreyGrouping(self, preyGrouping):
+        for i, prey in enumerate(self.prey):
+            if not prey.isAlive:
+                continue
+
+            groupingCount = 0
+
+            for j, other in enumerate(self.prey):
+                if i == j or not other.isAlive:
+                    continue
+
+                dist = torch.norm(prey.position - other.position)
+
+                if dist < 2.5:
+                    groupingCount += 1
+
+            preyGrouping[i] += groupingCount
+
+    def _updatePredatorPreyPressure(self, predatorNearestPreyDistanceSum, predatorNearestPreyDistanceCount):
+        for i, predator in enumerate(self.predators):
+            if not predator.isAlive:
+                continue
+
+            nearestDistance = None
+
+            for prey in self.prey:
+                if not prey.isAlive:
+                    continue
+
+                dist = torch.norm(predator.position - prey.position).item()
+
+                if nearestDistance is None or dist < nearestDistance:
+                    nearestDistance = dist
+
+            if nearestDistance is not None:
+                predatorNearestPreyDistanceSum[i] += nearestDistance
+                predatorNearestPreyDistanceCount[i] += 1
+
+    def _updatePredatorTeamHuntScore(self, predatorTeamHuntScore) -> None:
+        teamHuntRadius = 3.0
+        minimumPredatorsForTeamHunt = 2
+
+        for prey in self.prey:
+            if not prey.isAlive:
+                continue
+
+            nearbyPredatorIndices = []
+
+            for i, predator in enumerate(self.predators):
+                if not predator.isAlive:
+                    continue
+
+                dist = torch.norm(predator.position - prey.position).item()
+                if dist < teamHuntRadius:
+                    nearbyPredatorIndices.append(i)
+
+            if len(nearbyPredatorIndices) >= minimumPredatorsForTeamHunt:
+                for predatorIndex in nearbyPredatorIndices:
+                    predatorTeamHuntScore[predatorIndex] += 1.0

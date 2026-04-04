@@ -10,65 +10,85 @@ import NeuralNetwork
 import Simulator
 
 
-RETRIAL_AMOUNT = 1
-WORKER_COUNT = 8
+RETRIAL_AMOUNT      = 1
+WORKER_COUNT        = 8
+
+SIMULATION_BATCH_SIZE   = 4
+SIMULATION_REPEAT_COUNT = 2
+
 ENABLE_MESSAGE_LOGGING = True
 
 
 def evaluate(args):
     predators, prey, duration, enableMessageLogging = args
 
-    sumPredatorFitness = {genotypeID: 0.0 for genotypeID, _ in predators}
-    sumPreyFitness = {genotypeID: 0.0 for genotypeID, _ in prey}
+    predatorFitnessSums = {genotypeID: 0.0 for genotypeID, _ in predators}
+    preyFitnessSums     = {genotypeID : 0.0 for genotypeID, _ in prey}
 
-    predNNs     = [item[1] for item in predators]
+    predatorNNs = [item[1] for item in predators]
     preyNNs     = [item[1] for item in prey]
+
     predatorIDs = [item[0] for item in predators]
-    preyIDs     = [item[0] for item in prey]
+    preyIDs =     [item[0] for item in prey]
 
     capturedMessageLog = None
 
+    predatorDiagnostics = {
+        "catches": {genotypeID: 0.0 for genotypeID, _ in predators},
+        "catchReward": {genotypeID: 0.0 for genotypeID, _ in predators},
+        "teamHuntBonus": {genotypeID: 0.0 for genotypeID, _ in predators},
+        "preyPressureBonus": {genotypeID: 0.0 for genotypeID, _ in predators},
+        "totalFitness": {genotypeID: 0.0 for genotypeID, _ in predators}
+    }
+
     with Simulator.SuppressOutput():
         sim = Simulator.Simulator(
-            numPredators=len(predNNs),
-            numPrey=len(preyNNs),
-            simDuration=duration,
-            gui=False
+            numPredators = len(predatorIDs),
+            numPrey      = len(preyNNs),
+            simDuration  = duration,
+            gui = False
         )
+        try:
+            for _ in range(RETRIAL_AMOUNT):
+                telemetry = sim.runSimulation(
+                    predatorNNs         = predatorNNs,
+                    preyNNs             = preyNNs,
+                    predatorGenotypeIDs = predatorIDs,
+                    preyGenotypeIDs     = preyIDs
+                )
+                for i, (genotypeID, _) in enumerate(predators):
+                    predatorTelemetry = telemetry["predators"][i]
+                    fitnessData = FitnessFunctions.calculatePredatorFitnessBreakdown(predatorTelemetry)
 
-        for _ in range(RETRIAL_AMOUNT):
-            telemetry = sim.runSimulation(
-                predatorNNs = predNNs,
-                preyNNs = preyNNs,
-                predatorGenotypeIDs = predatorIDs,
-                preyGenotypeIDs = preyIDs,
-            )
+                    predatorFitnessSums[genotypeID] += fitnessData["totalFitness"]
 
-            for i, (genotypeID, _) in enumerate(predators):
-                predatorTelemetry = telemetry["predators"][i]
-                fitness = FitnessFunctions.calculatePredatorFitness(predatorTelemetry)
-                sumPredatorFitness[genotypeID] += fitness
+                    predatorDiagnostics["catches"][genotypeID]     += fitnessData["catches"]
+                    predatorDiagnostics["catchReward"][genotypeID] += fitnessData["catchReward"]
+                    predatorDiagnostics["teamHuntBonus"][genotypeID] += fitnessData["teamHuntBonus"]
+                    predatorDiagnostics["preyPressureBonus"][genotypeID] += fitnessData["preyPressureBonus"]
+                    predatorDiagnostics["totalFitness"][genotypeID] += fitnessData["totalFitness"]
 
-            for i, (genotypeID, _) in enumerate(prey):
-                preyTelemetry = telemetry["prey"][i]
-                fitness = FitnessFunctions.calculatePreyFitness(preyTelemetry)
-                sumPreyFitness[genotypeID] += fitness
+                for i, (genotypeID, _) in enumerate(prey):
+                    preyTelemetry = telemetry["prey"][i]
+                    fitness = FitnessFunctions.calculatePreyFitness(preyTelemetry)
+                    preyFitnessSums[genotypeID] += fitness
 
-            if enableMessageLogging and capturedMessageLog is None:
-                capturedMessageLog = telemetry.get("messageLog", None)
-
-        sim.disconnect()
+                if enableMessageLogging and capturedMessageLog is None:
+                    capturedMessageLog = telemetry.get("messageLog", None)
+        finally:
+            sim.disconnect()
 
     finalPredatorResults = {
-        genotypeID: fitness / RETRIAL_AMOUNT
-        for genotypeID, fitness in sumPredatorFitness.items()
+        genotypeID : fitness / RETRIAL_AMOUNT for genotypeID, fitness in predatorFitnessSums.items()
     }
     finalPreyResults = {
-        genotypeID: fitness / RETRIAL_AMOUNT
-        for genotypeID, fitness in sumPreyFitness.items()
+        genotypeID : fitness / RETRIAL_AMOUNT for genotypeID, fitness in preyFitnessSums.items()
+    }
+    finalPredatorDiagnostics = {
+        metric : {genotypeID : value / RETRIAL_AMOUNT for genotypeID, value in metricMap.items()} for metric, metricMap in predatorDiagnostics.items()
     }
 
-    return finalPredatorResults, finalPreyResults, capturedMessageLog
+    return finalPredatorResults, finalPreyResults, capturedMessageLog, finalPredatorDiagnostics
 
 def saveMessageLog(messageLog, generationNo):
     if not messageLog:
@@ -131,14 +151,14 @@ class GenerationController:
         self.totalParams = sum(layer["totalWeights"] + layer["biases"] for layer in self.layerSpecs)
 
         self.predEvolver = Evolver.Evolver(
-            tournamentSize=2,
-            mutationRate=0.35,
-            sigma=0.3
+            tournamentSize=4,
+            mutationRate=0.10,
+            sigma=0.08
         )
         self.preyEvolver = Evolver.Evolver(
-            tournamentSize=2,
-            mutationRate=0.35,
-            sigma=0.3
+            tournamentSize=3,
+            mutationRate=0.15,
+            sigma=0.1
         )
 
         if self.generationNo == 0:
@@ -368,7 +388,7 @@ class GenerationController:
         except Exception as e:
             print(e)
 
-    def _runSimulator(self):
+    def _runSimulator(self, duration):
         predators = [
             (p["genotypeID"], p["genotypeNN"]) for p in self.currentPredatorGeneration
         ]
@@ -376,43 +396,104 @@ class GenerationController:
             (p["genotypeID"], p["genotypeNN"]) for p in self.currentPreyGeneration
         ]
 
+        simulationBatches = self._prepareSimulationBatches(predators, prey)
+
         tasks = []
-        for workerIndex in range(WORKER_COUNT):
-            enableLoggingForThisWorker = ENABLE_MESSAGE_LOGGING and workerIndex == 0
-            tasks.append(
-                (predators, prey, 30.0, enableLoggingForThisWorker)
+        for i in range(0, SIMULATION_REPEAT_COUNT):
+            for j, simulationBatch in enumerate(simulationBatches):
+                enableSimulationLog = ENABLE_MESSAGE_LOGGING and i == 0 and j == 0
+                tasks.append(
+                    (
+                        simulationBatch["predators"],
+                        simulationBatch["prey"],
+                        duration,
+                        enableSimulationLog,
+                    )
+                )
+
+        with ProcessPoolExecutor(max_workers = min(WORKER_COUNT, len(tasks))) as executor:
+            results = list(
+                executor.map(evaluate, tasks)
             )
 
-        with ProcessPoolExecutor(max_workers=WORKER_COUNT) as executor:
-            results = list(executor.map(evaluate, tasks))
+        for predator in self.currentPredatorGeneration:
+            predator["fitness"] = 0.0
+        for prey in self.currentPreyGeneration:
+            prey["fitness"] = 0.0
 
-        for p in self.currentPredatorGeneration:
-            p["fitness"] = 0.0
-        for p in self.currentPreyGeneration:
-            p["fitness"] = 0.0
+        predatorEvaluationCounts = {
+            predator["genotypeID"] : 0 for predator in self.currentPredatorGeneration
+        }
+        preyEvaluationCounts = {
+            prey["genotypeID"] : 0 for prey in self.currentPreyGeneration
+        }
 
         savedMessageLog = None
 
-        for predMap, preyMap, messageLog in results:
+        aggregatedPredatorDiagnostics = {
+            "catches"           : 0.0,
+            "catchReward"       : 0.0,
+            "teamHuntBonus"     : 0.0,
+            "preyPressureBonus" : 0.0,
+            "totalFitness"      : 0.0
+        }
+
+        diagnosticBatchCount = 0
+
+        for predMap, preyMap, messageLog, predatorDiagnostics in results:
             for genotypeID, fitness in predMap.items():
-                self.currentPredatorGeneration[genotypeID]["fitness"] += fitness / WORKER_COUNT
+                self.currentPredatorGeneration[genotypeID]["fitness"] += fitness
+                predatorEvaluationCounts[genotypeID] += 1
 
             for genotypeID, fitness in preyMap.items():
-                self.currentPreyGeneration[genotypeID]["fitness"] += fitness / WORKER_COUNT
+                self.currentPreyGeneration[genotypeID]["fitness"] += fitness
+                preyEvaluationCounts[genotypeID] += 1
+
+            for metric in aggregatedPredatorDiagnostics:
+                metricValues = list(predatorDiagnostics[metric].values())
+                if metricValues:
+                    aggregatedPredatorDiagnostics[metric] += sum(metricValues) / len(metricValues)
+
+            diagnosticBatchCount += 1
 
             if savedMessageLog is None and messageLog:
                 savedMessageLog = messageLog
 
-        if ENABLE_MESSAGE_LOGGING and savedMessageLog:
-            return savedMessageLog
-        else:
-            return None
+        for predator in self.currentPredatorGeneration:
+            genotypeID = predator["genotypeID"]
+            evalCount = predatorEvaluationCounts[genotypeID]
+            if evalCount == 0:
+                raise ValueError(f"Error: predator genotype {genotypeID} has no evaluation count. Suggests genotype was not evaluated")
+            predator["fitness"] /= evalCount
 
-    def run(self):
-        messageLog = self._runSimulator()
+        for prey in self.currentPreyGeneration:
+            genotypeID = prey["genotypeID"]
+            evalCount = preyEvaluationCounts[genotypeID]
+            if evalCount == 0:
+                raise ValueError(f"Error: prey genotype {genotypeID} has no evaluation count. Suggests genotype was not evaluated")
+            prey["fitness"] /= evalCount
+
+        if diagnosticBatchCount > 0:
+            for metric in aggregatedPredatorDiagnostics:
+                aggregatedPredatorDiagnostics[metric] /= diagnosticBatchCount
+
+        return savedMessageLog, aggregatedPredatorDiagnostics
+
+
+
+    def run(self, duration):
+        messageLog, predatorDiagnostics = self._runSimulator(duration)
 
         predData = calculateDescriptiveStatisticsFromGeneration(self.currentPredatorGeneration)
         preyData = calculateDescriptiveStatisticsFromGeneration(self.currentPreyGeneration)
+
+        print(
+            f"Predator Diagnostics | "
+            f"avg catches {predatorDiagnostics['catches']:.2f} |"
+            f"catchReward {predatorDiagnostics['catchReward']:.2f} |"
+            f"teamHuntBonus {predatorDiagnostics['teamHuntBonus']:.2f} |"
+            f"preyPressureBonus {predatorDiagnostics['preyPressureBonus']:.2f} |"
+        )
 
         if self.generationNo % self.checkpointControl == 0:
             self._saveGeneration()
@@ -420,8 +501,13 @@ class GenerationController:
             if ENABLE_MESSAGE_LOGGING and messageLog:
                 saveMessageLog(messageLog, self.generationNo)
 
-        self.currentPredatorGeneration = self.predEvolver.produceNextGeneration(self.currentPredatorGeneration)
-        self.currentPreyGeneration = self.preyEvolver.produceNextGeneration(self.currentPreyGeneration)
+        self.currentPredatorGeneration = self.predEvolver.produceNextGeneration(
+            self.currentPredatorGeneration,
+            kFittest = 4
+        )
+        self.currentPreyGeneration = self.preyEvolver.produceNextGeneration(
+            self.currentPreyGeneration
+        )
 
         for i, _ in enumerate(self.currentPredatorGeneration):
             self.currentPredatorGeneration[i]["genotypeID"] = i
@@ -451,6 +537,20 @@ class GenerationController:
 
         self.generationNo += 1
         return predData, preyData
+
+    def _prepareSimulationBatches(self, predators, prey) -> list:
+        i = 0
+        simulationBatches = []
+        while i < self.predPopSize:
+            simulationBatches.append(
+                {
+                    "predators" : predators[i:i + SIMULATION_BATCH_SIZE],
+                    "prey"      : prey
+                }
+            )
+            i = i + SIMULATION_BATCH_SIZE
+        return simulationBatches
+
 
 
 def calculateDescriptiveStatisticsFromGeneration(generation: list) -> tuple:
