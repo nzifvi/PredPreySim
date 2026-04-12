@@ -108,7 +108,13 @@ class Agent:
     def getObservation(self, predators, prey, visionRadius):
         size = self.agentConfig.arenaSize
 
-        obs = [self.velocity]
+        normalisedVelocity = torch.clamp(
+            self.velocity / (self.agentConfig.maxSpeed + 1e-6),
+            -1.0,
+            1.0
+        )
+        obs = [normalisedVelocity]
+
         obs.append(torch.tensor(
             [
                 (size / 2 - self.position[0]) / size,

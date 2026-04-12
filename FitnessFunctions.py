@@ -1,12 +1,13 @@
 # predator fitness function term weights
-CATCH_REWARD_WEIGHT = 200.0
-TEAM_HUNT_BONUS_WEIGHT = 15.0
-PREDATOR_PREY_PRESSURE_WEIGHT = 25.0
+CATCH_REWARD_WEIGHT = 150.0
+TEAM_HUNT_BONUS_WEIGHT = 75.0
+PREDATOR_PREY_PRESSURE_WEIGHT = 75.0
 
 # prey fitness function term weights
 GROUPING_BONUS_WEIGHT = 1.5
 COMPLETION_BONUS_WEIGHT = 250
 PREY_SURVIVAL_BONUS_WEIGHT = 10.0
+ESCAPE_BONUS_WEIGHT = 25.0
 
 def calculatePredatorFitnessBreakdown(predatorTelemetry) -> dict:
     catches = predatorTelemetry["catches"]
@@ -38,8 +39,13 @@ def calculatePreyFitness(preyTelemetry) -> float:
     completionBonus = 0.0
     if preyTelemetry["alive"]:
         completionBonus = COMPLETION_BONUS_WEIGHT
-    groupingBonus = preyTelemetry.get("groupingBonus", 0.0) * GROUPING_BONUS_WEIGHT
+    groupingBonus = preyTelemetry.get("groupingScore", 0.0) * GROUPING_BONUS_WEIGHT
 
-    fitness = survivalReward + completionBonus + groupingBonus
+    meanNearestPredatorDistance = preyTelemetry.get("meanNearestPredatorDistance", 0.0)
+    escapeBonus = 0.0
+    if meanNearestPredatorDistance is not None:
+        escapeBonus = (meanNearestPredatorDistance / 4.0) * ESCAPE_BONUS_WEIGHT
+
+    fitness = survivalReward + completionBonus + groupingBonus + escapeBonus
 
     return max(0.0, fitness)

@@ -108,6 +108,50 @@ class Simulator:
 
         for _ in range(10):
             pybullet.stepSimulation()
+        """
+        for agent in self.predators + self.prey:
+            pybullet.removeBody(agent.agent)
+
+        self.predators = []
+        self.prey = []
+        self.messageLog = []
+
+        # One predator at origin
+        predator = Agent.Agent(
+            position=[0.0, 0.0],
+            isPredator=True,
+            agentConfig=SimulationConfig.PredatorConfig()
+        )
+        self.predators.append(predator)
+
+        # One prey 2 units to the right
+        prey = Agent.Agent(
+            position=[2.0, 0.0],
+            isPredator=False,
+            agentConfig=SimulationConfig.PreyConfig()
+        )
+        self.prey.append(prey)
+
+        # Fill remaining agents far away so they do not matter
+        for _ in range(self.numPredators - 1):
+            predator = Agent.Agent(
+                position=[20.0, 20.0],
+                isPredator=True,
+                agentConfig=SimulationConfig.PredatorConfig()
+            )
+            self.predators.append(predator)
+
+        for _ in range(self.numPrey - 1):
+            prey = Agent.Agent(
+                position=[-20.0, -20.0],
+                isPredator=False,
+                agentConfig=SimulationConfig.PreyConfig()
+            )
+            self.prey.append(prey)
+
+        for _ in range(10):
+            pybullet.stepSimulation()
+        """
 
     def runSimulation(self, predatorNNs, preyNNs, predatorGenotypeIDs = None, preyGenotypeIDs = None):
         self.reset()
@@ -118,7 +162,12 @@ class Simulator:
         predatorTeamHuntScore            = [0.0] * self.numPredators
         predatorNearestPreyDistanceSum   = [0.0] * self.numPredators
         predatorNearestPreyDistanceCount = [0.0] * self.numPredators
+
+
         preyGrouping                     = [0.0] * self.numPrey
+        preyNearestPredatorDistanceSum   = [0.0] * self.numPrey
+        preyNearestPredatorDistanceCount = [0.0] * self.numPrey
+
         currentTime                      = 0.0
         step                             = 0
 
@@ -139,9 +188,13 @@ class Simulator:
             self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
             self._updatePreyGrouping(preyGrouping)
             self._updatePredatorPreyPressure(
-                    predatorNearestPreyDistanceSum,
-                    predatorNearestPreyDistanceCount
-                )
+                predatorNearestPreyDistanceSum,
+                predatorNearestPreyDistanceCount
+            )
+            self._updatePreyPredatorEscape(
+                preyNearestPredatorDistanceSum,
+                preyNearestPredatorDistanceCount
+            )
 
             if self.haveGUI and step % 5 == 0:
                 time.sleep(self.timeStep * 2)
@@ -164,7 +217,10 @@ class Simulator:
                 {
                     "timeAlive"     : self.prey[i].timeAlive,
                     "alive"         : self.prey[i].isAlive,
-                    "groupingScore" : preyGrouping[i]
+                    "groupingScore" : preyGrouping[i] / max(step, 1),
+                    "meanNearestPredatorDistance" : (
+                        preyNearestPredatorDistanceSum[i] / preyNearestPredatorDistanceCount[i] if preyNearestPredatorDistanceCount[i] > 0 else self.arenaSize
+                    )
                 }
                 for i in range(len(self.prey))
             ],
@@ -232,6 +288,30 @@ class Simulator:
                     predator.hiddenState,
                     predator.receivedMessage
                 )
+            """"
+            if i == 0 and step % 240 == 0:
+                self._debugObservations(
+                    "0th Predator Observations",
+                    predatorObservation,
+                    True
+                )
+                obs = predatorObservation.view(-1).cpu().numpy()
+                mov = movement.view(-1).cpu().numpy()
+                actualMov = numpy.clip(mov, -1.0, 1.0)
+
+                dx = obs[9]
+                dy = obs[10]
+                dist = obs[11]
+
+                alignment = dx * actualMov[0] + dy * actualMov[1]
+
+                print("Predator Policy Check:")
+                print(f"    - Nearest Prey Direction   : (x={dx:.3f}, y={dy:.3f})")
+                print(f"    - Nearest Prey Distance    : {dist:.3f}")
+                print(f"    - Raw Predator Movement    : (x={mov[0]:.3f}, y={mov[1]:.3f})")
+                print(f"    - Actual Predator Movement : (x={actualMov[0]:.3f}, y={actualMov[1]:.3f})")
+                print(f"    - Chase Alignment          : {alignment:.3f}")
+            """
 
             predator.hiddenState = newHidden
             predator.message = communication
@@ -279,7 +359,31 @@ class Simulator:
                     prey.hiddenState,
                     prey.receivedMessage
                 )
+            """"
+            if i == 0 and step % 240 == 0:
+                self._debugObservations(
+                    "0th Prey Observations",
+                    preyObservation,
+                    True
+                )
 
+                obs = preyObservation.view(-1).cpu().numpy()
+                mov = movement.view(-1).cpu().numpy()
+                actualMov = numpy.clip(mov, -1.0, 1.0)
+
+                dx = obs[6]
+                dy = obs[7]
+                dist = obs[8]
+
+                alignment = -(dx * actualMov[0] + dy * actualMov[1])
+
+                print("Prey Policy Check:")
+                print(f"    - Nearest Predator Direction : (x={dx:.3f}, y={dy:.3f})")
+                print(f"    - Nearest Predator Distance  : {dist:.3f}")
+                print(f"    - Raw Prey Movement          : (x={mov[0]:.3f}, y={mov[1]:.3f})")
+                print(f"    - Actual Prey Movement       : (x={actualMov[0]:.3f}, y={actualMov[1]:.3f})")
+                print(f"    - Flee Alignment             : {alignment:.3f}")
+            """
             prey.hiddenState = newHidden
             prey.message = communication
 
@@ -442,3 +546,39 @@ class Simulator:
             if len(nearbyPredatorIndices) >= minimumPredatorsForTeamHunt:
                 for predatorIndex in nearbyPredatorIndices:
                     predatorTeamHuntScore[predatorIndex] += 1.0
+
+    def _debugObservations(self, label, obs, isPredator) -> None:
+        obs = obs.view(-1).cpu().numpy()
+
+        print(f"{label}:")
+        print(f"    - velocity : (x = {obs[0]:.3f}, y = {obs[1]:.3f})")
+        print(f"    - walls    :    ({obs[2]:.3f}, {obs[3]:.3f}, {obs[4]:.3f}, {obs[5]:.3f})")
+        if isPredator:
+            print(f"    - nearestAllyPredator : direction = ({obs[6]:.3f}, {obs[7]:.3f}, {obs[8]:.3f})")
+            print(f"    - nearestPrey         : direction = ({obs[9]:.3f}, {obs[10]:.3f}, {obs[11]:.3f})")
+            print(f"    - avgPreyDirection    : ({obs[12]:.3f}, {obs[13]:.3f}")
+        else:
+            print(f"    - nearestPredator : direction = ({obs[6]:.3f}, {obs[7]:.3f}, {obs[8]:.3f})")
+            print(f"    - nearestAllyPrey         : direction = ({obs[9]:.3f}, {obs[10]:.3f}, {obs[11]:.3f})")
+            print(f"    - avgAllyPreyDirection    : ({obs[12]:.3f}, {obs[13]:.3f}")
+
+    def _updatePreyPredatorEscape(self, preyNearestPredatorDistanceSum, preyNearestPredatorDistanceCount):
+        for i, prey in enumerate(self.prey):
+            if not prey.isAlive:
+                continue
+
+            nearestDistance = None
+
+            for predator in self.predators:
+                if not predator.isAlive:
+                    continue
+
+                dist = torch.norm(prey.position - predator.position).item()
+
+                if nearestDistance is None or dist < nearestDistance:
+                    nearestDistance = dist
+
+
+            if nearestDistance is not None:
+                preyNearestPredatorDistanceSum[i] += nearestDistance
+                preyNearestPredatorDistanceCount[i] += 1
