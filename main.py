@@ -1,5 +1,8 @@
 import matplotlib
 import matplotlib.colors as colors
+
+import FitnessFunctions
+
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import pandas
@@ -38,9 +41,9 @@ def train(duration):
     predator_errorbars = None
     prey_errorbars = None
 
-    ax.set_title("Evolutionary Progress: Predator vs Prey Fitness")
-    ax.set_xlabel("Generation")
-    ax.set_ylabel("Fitness Score")
+    ax.set_title("evolution? ahhhh")
+    ax.set_xlabel("gen")
+    ax.set_ylabel("fitness")
     ax.grid(True, linestyle="--", alpha=0.6)
     ax.legend(loc="upper left")
 
@@ -270,7 +273,83 @@ def messageVsMovementHeatmaps(generationNo:int, bins:int = 100) -> None:
     plt.tight_layout()
     plt.show()
 
+def plotGenerationalFitness() -> None:
+    f = open("Generations/GenerationCount.txt", "r")
+    genCount = int(f.read())
+    f.close()
+
+    generations = []
+    i = 0
+    while i <= genCount:
+        generations.append(i)
+        i = i +5
+
+    preyGenerationFitness = []
+    predGenerationFitness = []
+
+    for j in generations:
+        predDF = pandas.read_csv(f"Generations/Generation{j}/predatorTelemetry.csv")
+        preyDF = pandas.read_csv(f"Generations/Generation{j}/preyTelemetry.csv")
+        predFitnesses = []
+        preyFitnesses = []
+        for k in range(0, len(predDF)):
+            predRow = predDF.iloc[k]
+            preyRow = preyDF.iloc[k]
+
+            predFitnesses.append(
+                FitnessFunctions.calculatePredatorFitness(
+                    FitnessFunctions.calculatePredatorFitnessBreakdown(
+                        {
+                            "catches" : predRow["catches"],
+                            "teamHuntScore" : predRow["teamHuntScore"],
+                            "meanNearestPreyDistance" : predRow["meanNearestPreyDistance"]
+                        }
+                    )
+                )
+            )
+            preyFitnesses.append(
+                FitnessFunctions.calculatePreyFitness(
+                    {
+                        "timeAlive" : preyRow["timeAlive"],
+                        "alive" : preyRow["alive"],
+                        "groupingScore" : preyRow["groupingScore"]
+                    }
+                )
+            )
+
+        predAvgFitness = sum(predFitnesses) / len(predFitnesses)
+        minPredFitness = min(predFitnesses)
+        maxPredFitness = max(predFitnesses)
+
+        preyAvgFitness = sum(preyFitnesses) / len(preyFitnesses)
+        minPreyFitness = min(preyFitnesses)
+        maxPreyFitness = max(preyFitnesses)
+        predGenerationFitness.append(
+            (predAvgFitness, minPredFitness, maxPredFitness)
+        )
+        preyGenerationFitness.append(
+            (preyAvgFitness, minPreyFitness, maxPreyFitness)
+        )
+
+    for i in range(0, len(generations)):
+        print(f"Generation {generations[i]}:")
+        avgPredFitness, minPredFitness, maxPredFitness = predGenerationFitness[i]
+        avgPreyFitness, minPreyFitness, maxPreyFitness = preyGenerationFitness[i]
+        print(f" |    avg pred. fitness: {avgPredFitness:.4f}, min pred. fitness: {minPredFitness:.4f}, max pred. fitness: {maxPreyFitness:.4f}")
+        print(f" |    avg prey fitness: {avgPreyFitness:.4f}, min prey fitness: {minPreyFitness:.4f}, max prey fitness: {maxPreyFitness:.4f}\n")
+
+
+
+
 if __name__ == "__main__":
+    """
+    observe(
+        generationNo = 0,
+        predators = [0, 1, 2, 3],
+        prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        duration = 35.0
+    )
+    """
     train(
         duration = 15.0
     )

@@ -280,7 +280,7 @@ class Simulator:
         predatorActions = []
 
         for i, predator in enumerate(self.predators):
-            predatorObservation = predator.getObservation(self.predators, self.prey, self.visionRadius).view(1, 14)
+            predatorObservation = predator.getObservation(self.predators, self.prey, self.visionRadius).view(1, 19)
 
             with torch.no_grad():
                 movement, communication, newHidden = predatorNNs[i].forward(
@@ -351,7 +351,7 @@ class Simulator:
                 preyActions.append(None)
                 continue
 
-            preyObservation = prey.getObservation(self.predators, self.prey, self.visionRadius).view(1, 14)
+            preyObservation = prey.getObservation(self.predators, self.prey, self.visionRadius).view(1, 19)
 
             with torch.no_grad():
                 movement, communication, newHidden = preyNNs[i].forward(

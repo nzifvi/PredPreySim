@@ -108,31 +108,59 @@ class Agent:
     def getObservation(self, predators, prey, visionRadius):
         size = self.agentConfig.arenaSize
 
+        if self.isPredator:
+            allies  = predators
+            enemies = prey
+        else:
+            allies  = prey
+            enemies = predators
+
         normalisedVelocity = torch.clamp(
             self.velocity / (self.agentConfig.maxSpeed + 1e-6),
-            -1.0,
-            1.0
+            min = - 1.0,
+            max = 1.0
         )
-        obs = [normalisedVelocity]
 
-        obs.append(torch.tensor(
+        wallDistances = torch.tensor(
             [
                 (size / 2 - self.position[0]) / size,
                 (size / 2 + self.position[0]) / size,
                 (size / 2 - self.position[1]) / size,
-                (size / 2 + self.position[1]) / size,
+                (size / 2 + self.position[1]) / size
             ],
-            dtype=torch.float32,
-            device=self.device
-        ))
+            dtype = torch.float32,
+            device = self.device
+        )
 
-        obs.append(self._findNearestEntity(predators, visionRadius))
+        nearestAlly  = self._findNearestEntity(allies, visionRadius)
+        nearestEnemy = self._findNearestEntity(enemies, visionRadius)
 
-        nearestPrey, averageDirection = self._findNearestPreyAndAvgDirection(prey, visionRadius)
-        obs.append(nearestPrey)
-        obs.append(averageDirection)
+        avgAllyDirection, visibleAllyCount = self._findAvgDirectionAndCount(allies, visionRadius)
+        avgEnemyDirection, visibleEnemyCount = self._findAvgDirectionAndCount(enemies, visionRadius)
 
-        return torch.cat(obs).view(1, -1)
+        localNumericalAdvantage = torch.tensor(
+            [
+                (visibleAllyCount - visibleEnemyCount) / max(1, len(allies))
+            ],
+            dtype = torch.float32,
+            device = self.device
+        )
+
+        observations = [
+            normalisedVelocity,
+            wallDistances,
+            nearestAlly,
+            nearestEnemy,
+            avgAllyDirection,
+            avgEnemyDirection,
+            torch.tensor([visibleAllyCount], dtype = torch.float32, device = self.device),
+            torch.tensor([visibleEnemyCount], dtype = torch.float32, device = self.device),
+            localNumericalAdvantage
+        ]
+
+        return torch.cat(observations).view(1, -1)
+
+
 
     def _findNearestEntity(self, agents, visionRadius):
         minDistance = torch.tensor(visionRadius, device=self.device, dtype=torch.float32)
@@ -161,50 +189,29 @@ class Agent:
         normalizedDistance = (minDistance / visionRadius).unsqueeze(0)
         return torch.cat([direction, normalizedDistance])
 
-    def _findNearestPreyAndAvgDirection(self, agents, visionRadius):
-        minDistance = torch.tensor(visionRadius, device=self.device, dtype=torch.float32)
-        nearestDirection = torch.zeros(2, device=self.device)
-        averageDirection = torch.zeros(2, device=self.device)
-
+    def _findAvgDirectionAndCount(self, agents:list, visionRadius:float) -> tuple:
+        avgDirection = torch.zeros(2, device=self.device)
         count = 0
-        foundEntity = False
 
         for a in agents:
             if a.agent == self.agent or not a.isAlive:
                 continue
 
-            distanceDifference = a.position - self.position
-            distance = torch.norm(distanceDifference)
+            distanceDiff = a.position - self.position
+            distance = torch.norm(distanceDiff)
 
             if distance > visionRadius:
                 continue
-
-            if distance < minDistance:
-                minDistance = distance
-                nearestDirection = distanceDifference / (distance + 1e-6)
-                foundEntity = True
-
-            averageDirection += distanceDifference
+            avgDirection += distanceDiff
             count += 1
 
         if count > 0:
-            averageDirection /= count
-            averageDirection /= (torch.norm(averageDirection) + 1e-6)
+            avgDirection /= count
+            avgDirection /= (torch.norm(avgDirection) + 1e-6)
         else:
-            averageDirection = torch.zeros(2, device=self.device)
+            avgDirection = torch.zeros(2, device=self.device)
 
-        if not foundEntity:
-            nearest = torch.cat([
-                torch.zeros(2, device=self.device),
-                torch.tensor([1.0], device=self.device)
-            ])
-        else:
-            nearest = torch.cat([
-                nearestDirection,
-                (minDistance / visionRadius).unsqueeze(0)
-            ])
-
-        return nearest, averageDirection
+        return avgDirection, count
 
     def kill(self):
         self.isAlive = False
