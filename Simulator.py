@@ -108,50 +108,6 @@ class Simulator:
 
         for _ in range(10):
             pybullet.stepSimulation()
-        """
-        for agent in self.predators + self.prey:
-            pybullet.removeBody(agent.agent)
-
-        self.predators = []
-        self.prey = []
-        self.messageLog = []
-
-        # One predator at origin
-        predator = Agent.Agent(
-            position=[0.0, 0.0],
-            isPredator=True,
-            agentConfig=SimulationConfig.PredatorConfig()
-        )
-        self.predators.append(predator)
-
-        # One prey 2 units to the right
-        prey = Agent.Agent(
-            position=[2.0, 0.0],
-            isPredator=False,
-            agentConfig=SimulationConfig.PreyConfig()
-        )
-        self.prey.append(prey)
-
-        # Fill remaining agents far away so they do not matter
-        for _ in range(self.numPredators - 1):
-            predator = Agent.Agent(
-                position=[20.0, 20.0],
-                isPredator=True,
-                agentConfig=SimulationConfig.PredatorConfig()
-            )
-            self.predators.append(predator)
-
-        for _ in range(self.numPrey - 1):
-            prey = Agent.Agent(
-                position=[-20.0, -20.0],
-                isPredator=False,
-                agentConfig=SimulationConfig.PreyConfig()
-            )
-            self.prey.append(prey)
-
-        for _ in range(10):
-            pybullet.stepSimulation()
-        """
 
     def runSimulation(self, predatorNNs, preyNNs, predatorGenotypeIDs = None, preyGenotypeIDs = None):
         self.reset()

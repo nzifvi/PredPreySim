@@ -342,17 +342,13 @@ def plotGenerationalFitness() -> None:
 
 
 if __name__ == "__main__":
-    """
     observe(
-        generationNo = 0,
-        predators = [0, 1, 2, 3],
+        generationNo = 75,
+        predators = [8, 9, 10, 11],
         prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
         duration = 35.0
     )
-    """
-    train(
-        duration = 15.0
-    )
+
 
 # generation 185 has interesting emergent behaviour from prey population
 # - prey population move like one big organism. movement and direction of movement is synced.

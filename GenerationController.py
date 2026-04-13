@@ -11,7 +11,7 @@ import Simulator
 
 
 RETRIAL_AMOUNT      = 2
-WORKER_COUNT        = 8
+WORKER_COUNT        = 18
 
 SIMULATION_BATCH_SIZE   = 4
 SIMULATION_REPEAT_COUNT = 2
@@ -383,7 +383,7 @@ class GenerationController:
                         enableSimulationLog,
                     )
                 )
-        with ProcessPoolExecutor(max_workers = min(WORKER_COUNT, len(tasks))) as executor:
+        with ProcessPoolExecutor(max_workers = max(WORKER_COUNT, len(tasks))) as executor:
             results = list(executor.map(evaluate, tasks))
 
         idLinkedPredatorTelemetry = {
