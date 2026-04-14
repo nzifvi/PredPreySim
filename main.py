@@ -343,14 +343,8 @@ def plotGenerationalFitness() -> None:
 
 if __name__ == "__main__":
     observe(
-        generationNo = 75,
+        generationNo = 85,
         predators = [8, 9, 10, 11],
         prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        duration = 35.0
+        duration = 40.0
     )
-
-
-# generation 185 has interesting emergent behaviour from prey population
-# - prey population move like one big organism. movement and direction of movement is synced.
-# - all prey members participating in the big organism are equally spaced.
-# - distance between prey members is equal to the communication radius limit. done to maintain max distance without losing connection from network?
