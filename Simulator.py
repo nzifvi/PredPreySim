@@ -35,7 +35,7 @@ class Simulator:
         self.visionRadius        = simConfig.visionRadius
         self.communicationRadius = simConfig.communicationRadius
 
-        self.timeStep = 1.0 / 240.0
+        self.timeStep = 1.0 / 120.0
 
         if self.haveGUI:
             self.simClient = pybullet.connect(pybullet.GUI)
@@ -52,6 +52,10 @@ class Simulator:
         self.prey = []
 
         self.messageLog = []
+
+        self.predToPredDistances = None
+        self.predToPreyDistances = None
+        self.preyToPreyDistances = None
 
     def _initSimulator(self):
         self.plane = pybullet.loadURDF("plane.urdf")
@@ -129,6 +133,9 @@ class Simulator:
 
         while currentTime < self.simDuration:
             self._updateAllStates()
+            self._computeDistanceMatrices()
+
+
             self._updateReceivedMessages()
 
             predatorActions = self._getPredatorActions(predatorNNs, predatorGenotypeIDs, step)
@@ -140,6 +147,8 @@ class Simulator:
             pybullet.stepSimulation()
 
             self._updateAllStates()
+            self._computeDistanceMatrices()
+
             self._processCatches(preyCaught, predatorTeamHuntScore)
             self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
             self._updatePreyGrouping(preyGrouping)
@@ -387,25 +396,30 @@ class Simulator:
         catchSupportRadius = 3.0
 
         for i, predator in enumerate(self.predators):
-            for prey in self.prey:
+            for j, prey in enumerate(self.prey):
                 if not prey.isAlive:
                     continue
 
-                dist = torch.norm(predator.position - prey.position)
+                dist = self.predToPreyDistances[i, j]
                 if dist < self.catchDistance:
                     nearbyPredatorIndices = []
 
-                    for j, otherPredator in enumerate(self.predators):
-                        if not otherPredator.isAlive:
-                            continue
-
-                        supportDist = torch.norm(otherPredator.position - prey.position).item()
-                        if supportDist < catchSupportRadius:
-                            nearbyPredatorIndices.append(j)
+                    for k, otherPredator in enumerate(self.predators):
+                        supportDist = self.predToPreyDistances[k, j].item()
+                        if supportDist <= catchSupportRadius:
+                            nearbyPredatorIndices.append(k)
 
                     prey.kill()
-                    prey.message = torch.zeros(1, 2, dtype=torch.float32)
-                    prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
+                    prey.message = torch.zeros(
+                        1,
+                        2,
+                        dtype=torch.float32
+                    )
+                    prey.receivedMessage = torch.zeros(
+                        1,
+                        2,
+                        dtype=torch.float32
+                    )
                     preyCaught[i] += 1
 
                     if predatorTeamHuntScore is not None and len(nearbyPredatorIndices) >= 2:
@@ -449,13 +463,11 @@ class Simulator:
                 continue
 
             groupingCount = 0
-
             for j, other in enumerate(self.prey):
                 if i == j or not other.isAlive:
                     continue
 
-                dist = torch.norm(prey.position - other.position)
-
+                dist = self.preyToPreyDistances[i, j]
                 if dist < 2.5:
                     groupingCount += 1
 
@@ -463,17 +475,12 @@ class Simulator:
 
     def _updatePredatorPreyPressure(self, predatorNearestPreyDistanceSum, predatorNearestPreyDistanceCount):
         for i, predator in enumerate(self.predators):
-            if not predator.isAlive:
-                continue
-
             nearestDistance = None
-
-            for prey in self.prey:
+            for j, prey in enumerate(self.prey):
                 if not prey.isAlive:
                     continue
 
-                dist = torch.norm(predator.position - prey.position).item()
-
+                dist = self.predToPreyDistances[i, j].item()
                 if nearestDistance is None or dist < nearestDistance:
                     nearestDistance = dist
 
@@ -483,25 +490,23 @@ class Simulator:
 
     def _updatePredatorTeamHuntScore(self, predatorTeamHuntScore) -> None:
         teamHuntRadius = 3.0
-        minimumPredatorsForTeamHunt = 2
+        minRequiredPredators = 2
 
-        for prey in self.prey:
+        for j, prey in enumerate(self.prey):
             if not prey.isAlive:
                 continue
 
             nearbyPredatorIndices = []
 
             for i, predator in enumerate(self.predators):
-                if not predator.isAlive:
-                    continue
-
-                dist = torch.norm(predator.position - prey.position).item()
+                dist = self.predToPreyDistances[i, j].item()
                 if dist < teamHuntRadius:
                     nearbyPredatorIndices.append(i)
 
-            if len(nearbyPredatorIndices) >= minimumPredatorsForTeamHunt:
-                for predatorIndex in nearbyPredatorIndices:
-                    predatorTeamHuntScore[predatorIndex] += 1.0
+            if len(nearbyPredatorIndices) >= minRequiredPredators:
+                for pIndex in nearbyPredatorIndices:
+                    predatorTeamHuntScore[pIndex] += 1.0
+
 
     def _debugObservations(self, label, obs, isPredator) -> None:
         obs = obs.view(-1).cpu().numpy()
@@ -519,22 +524,46 @@ class Simulator:
             print(f"    - avgAllyPreyDirection    : ({obs[12]:.3f}, {obs[13]:.3f}")
 
     def _updatePreyPredatorEscape(self, preyNearestPredatorDistanceSum, preyNearestPredatorDistanceCount):
-        for i, prey in enumerate(self.prey):
+        for j, prey in enumerate(self.prey):
             if not prey.isAlive:
                 continue
 
             nearestDistance = None
 
-            for predator in self.predators:
-                if not predator.isAlive:
-                    continue
-
-                dist = torch.norm(prey.position - predator.position).item()
-
-                if nearestDistance is None or dist < nearestDistance:
+            for i, predator in enumerate(self.predators):
+                dist = self.predToPreyDistances[i, j].item()
+                if nearestDistance is None or dist <= nearestDistance:
                     nearestDistance = dist
 
-
             if nearestDistance is not None:
-                preyNearestPredatorDistanceSum[i] += nearestDistance
-                preyNearestPredatorDistanceCount[i] += 1
+                preyNearestPredatorDistanceSum[j] += nearestDistance
+                preyNearestPredatorDistanceCount[j] += 1
+
+    def _computeDistanceMatrices(self) -> None:
+        predPositions = torch.stack(
+            [p.position for p in self.predators]
+        )
+        preyPositions = torch.stack(
+            [p.position for p in self.prey]
+        )
+
+        # Predator-to-Predator distances
+        predDiff = predPositions.unsqueeze(1) - predPositions.unsqueeze(0)  # ← Fixed: pred - pred
+        self.predToPredDistances = torch.norm(
+            predDiff,
+            dim = 2
+        )
+
+        # Predator-to-Prey distances
+        predPreyDiff = predPositions.unsqueeze(1) - preyPositions.unsqueeze(0)
+        self.predToPreyDistances = torch.norm(
+            predPreyDiff,
+            dim = 2
+        )
+
+        # Prey-to-Prey distances
+        preyDiff = preyPositions.unsqueeze(1) - preyPositions.unsqueeze(0)
+        self.preyToPreyDistances = torch.norm(  # ← Fixed: preyToPrey not preyToPred
+            preyDiff,
+            dim = 2
+        )
