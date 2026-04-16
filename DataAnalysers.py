@@ -4,8 +4,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import os
 import numpy
 import pandas
+from scipy import signal, stats
+from statsmodels.tsa.stattools import acf
+import matplotlib.pyplot as plt
+
+import FitnessFunctions
 
 @dataclass
 class MessageLogProcessor:
@@ -205,3 +211,158 @@ class MessageLogProcessor:
     def topMessageBins(self, bins:int = 10, topN: int = 20) -> pandas.DataFrame:
         return self.discretiseMessages(bins = bins).head(topN)
 
+def loadTelemetryData(generationNo:int) -> dict:
+    direcPath = os.path.join("Generations", f"Generation{generationNo}")
+    return {
+        "generationNo": generationNo,
+        "predTelemetries" : pandas.read_csv(os.path.join(direcPath, "predatorTelemetry.csv")),
+        "preyTelemetries" : pandas.read_csv(os.path.join(direcPath, "preyTelemetry.csv")),
+    }
+
+def calculateGenerationFitnessStatistics(generationNo:int) -> dict:
+    speciesTelemetries = loadTelemetryData(generationNo)
+
+    predatorFitnesses = []
+    preyFitnesses     = []
+
+    for i in range(0, len(speciesTelemetries["predTelemetries"])):
+        predRow = speciesTelemetries["predTelemetries"].iloc[i]
+        preyRow = speciesTelemetries["preyTelemetries"].iloc[i]
+
+        predatorFitnesses.append(
+            FitnessFunctions.calculatePredatorFitness(
+                FitnessFunctions.calculatePredatorFitnessBreakdown(
+                    {
+                        "catches": predRow["catches"],
+                        "teamHuntScore": predRow["teamHuntScore"],
+                        "meanNearestPreyDistance": predRow["meanNearestPreyDistance"]
+                    }
+                )
+            )
+        )
+        preyFitnesses.append(
+            FitnessFunctions.calculatePreyFitness(
+                {
+                    "timeAlive": preyRow["timeAlive"],
+                    "alive": preyRow["alive"],
+                    "groupingScore": preyRow["groupingScore"]
+                }
+            )
+        )
+
+    maxPreyFitness = max(preyFitnesses)
+    maxPredFitness = max(predatorFitnesses)
+
+    minPreyFitness = min(preyFitnesses)
+    minPredFitness = min(predatorFitnesses)
+
+    avgPredFitness = sum(predatorFitnesses) / len(predatorFitnesses)
+    avgPreyFitness = sum(preyFitnesses) / len(preyFitnesses)
+
+    return {
+        "avgPredFitness" : avgPredFitness,
+        "avgPreyFitness" : avgPreyFitness,
+        "maxPredFitness" : maxPredFitness,
+        "maxPreyFitness" : maxPreyFitness,
+        "minPredFitness" : minPredFitness,
+        "minPreyFitness" : minPreyFitness,
+    }
+
+
+
+
+def analyseAutocorrelation(maxLag:int = 50, genStep:int = 5) -> dict:
+    generations = []
+    predatorFitness = []
+    preyFitness = []
+
+    with open("Generations/GenerationCount.txt", "r") as f:
+        genCount = int(f.read())
+
+    for gen in range(0, genCount + 1, genStep):
+        fitnessStats = calculateGenerationFitnessStatistics(gen)
+        generations.append(gen)
+
+        predatorFitness.append(fitnessStats["avgPredFitness"])
+        preyFitness.append(fitnessStats["avgPreyFitness"])
+
+    generations = numpy.array(generations)
+    predatorFitness = numpy.array(predatorFitness)
+    preyFitness = numpy.array(preyFitness)
+
+    predACF = acf(
+        predatorFitness,
+        nlags = min(maxLag, len(predatorFitness) - 1),
+        fft = True
+    )
+    preyACF = acf(
+        preyFitness,
+        nlags = min(maxLag, len(preyFitness) - 1),
+        fft = True
+    )
+    predPeaks, predHeights = findACFPeaks(predACF)
+    preyPeaks, preyHeights = findACFPeaks(preyACF)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+
+    # Predator ACF
+    axes[0].stem(range(len(predACF)), predACF, basefmt=' ')
+    axes[0].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    axes[0].axhline(y=0.2, color='r', linestyle='--', alpha=0.3, label='Significance threshold (0.2)')
+    axes[0].axhline(y=-0.2, color='r', linestyle='--', alpha=0.3)
+
+    # Mark detected peaks
+    if len(predPeaks) > 0:
+        axes[0].plot(predPeaks, predACF[predPeaks], 'ro', markersize=10,
+                     label=f'Detected peaks')
+
+    axes[0].set_xlabel('Lag (generations)')
+    axes[0].set_ylabel('Autocorrelation')
+    axes[0].set_title('Predator Fitness Autocorrelation Function')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # Prey ACF
+    axes[1].stem(range(len(preyACF)), preyACF, basefmt=' ')
+    axes[1].axhline(y=0, color='k', linestyle='--', alpha=0.3)
+    axes[1].axhline(y=0.2, color='r', linestyle='--', alpha=0.3, label='Significance threshold (0.2)')
+    axes[1].axhline(y=-0.2, color='r', linestyle='--', alpha=0.3)
+
+    # Mark detected peaks
+    if len(preyPeaks) > 0:
+        axes[1].plot(preyPeaks, preyACF[preyPeaks], 'ro', markersize=10,
+                     label=f'Detected peaks')
+
+    axes[1].set_xlabel('Lag (generations)')
+    axes[1].set_ylabel('Autocorrelation')
+    axes[1].set_title('Prey Fitness Autocorrelation Function')
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig('autocorrelation_analysis.png', dpi=300, bbox_inches='tight')
+    print(f"\n✓ Saved plot: autocorrelation_analysis.png")
+    plt.show()
+
+    # Step 6: Return results
+    return {
+        'generations': generations,
+        'predator_fitness': predatorFitness,
+        'prey_fitness': preyFitness,
+        'predator_acf': predACF,
+        'prey_acf': preyACF,
+        'predator_peaks': predPeaks,
+        'prey_peaks': preyPeaks,
+        'predator_peak_heights': predHeights,
+        'prey_peak_heights': preyHeights,
+        'predator_dominant_period': predPeaks[0] if len(predPeaks) > 0 else None,
+        'prey_dominant_period': preyPeaks[0] if len(preyPeaks) > 0 else None
+    }
+
+def findACFPeaks(acfValues, threshold:float = 0.2):
+    peaks, properties = signal.find_peaks(
+        acfValues[1:],
+        height = threshold
+    )
+    peaks += 1
+    return peaks, properties["peak_heights"]

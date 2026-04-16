@@ -2,11 +2,13 @@ import matplotlib
 import matplotlib.colors as colors
 
 import FitnessFunctions
+from DataAnalysers import analyseAutocorrelation
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import pandas
 import torch
+import numpy
 
 from GenerationController import GenerationController
 import Simulator
@@ -338,13 +340,76 @@ def plotGenerationalFitness() -> None:
         print(f" |    avg pred. fitness: {avgPredFitness:.4f}, min pred. fitness: {minPredFitness:.4f}, max pred. fitness: {maxPreyFitness:.4f}")
         print(f" |    avg prey fitness: {avgPreyFitness:.4f}, min prey fitness: {minPreyFitness:.4f}, max prey fitness: {maxPreyFitness:.4f}\n")
 
+    generations_array = numpy.array(generations)
+
+    pred_avg = numpy.array([f[0] for f in predGenerationFitness])
+    pred_min = numpy.array([f[1] for f in predGenerationFitness])
+    pred_max = numpy.array([f[2] for f in predGenerationFitness])
+
+    prey_avg = numpy.array([f[0] for f in preyGenerationFitness])
+    prey_min = numpy.array([f[1] for f in preyGenerationFitness])
+    prey_max = numpy.array([f[2] for f in preyGenerationFitness])
+
+    # Calculate error bars
+    pred_error_lower = pred_avg - pred_min
+    pred_error_upper = pred_max - pred_avg
+
+    prey_error_lower = prey_avg - prey_min
+    prey_error_upper = prey_max - prey_avg
+
+    # Create figure with single plot
+    fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+
+    # Plot predator fitness
+    ax.errorbar(
+        generations_array,
+        pred_avg,
+        yerr=[pred_error_lower, pred_error_upper],
+        fmt='o-',
+        linewidth=2.5,
+        markersize=7,
+        capsize=5,
+        capthick=2,
+        color='#2E86AB',
+        ecolor='#2E86AB',
+        label='Predator Mean',
+        alpha=0.8
+    )
+
+    # Plot prey fitness
+    ax.errorbar(
+        generations_array,
+        prey_avg,
+        yerr=[prey_error_lower, prey_error_upper],
+        fmt='s-',
+        linewidth=2.5,
+        markersize=7,
+        capsize=5,
+        capthick=2,
+        color='#F18F01',
+        ecolor='#F18F01',
+        label='Prey Mean',
+        alpha=0.8
+    )
+
+    # Fill between for visual effect
+    ax.fill_between(generations_array, pred_min, pred_max, alpha=0.15, color='#2E86AB')
+    ax.fill_between(generations_array, prey_min, prey_max, alpha=0.15, color='#F18F01')
+
+    ax.set_xlabel('Generation', fontsize=13)
+    ax.set_ylabel('Fitness', fontsize=13)
+    ax.set_title('Predator-Prey Fitness Evolution Over Generations', fontsize=15, fontweight='bold')
+    ax.legend(loc='best', fontsize=11)
+    ax.grid(True, alpha=0.3, linestyle='--')
+
+    plt.tight_layout()
+    plt.savefig('generational_fitness_combined.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved plot: generational_fitness_combined.png")
+    plt.show()
 
 
 
 if __name__ == "__main__":
-    observe(
-        generationNo = 155,
-        predators = [8, 9, 10, 11],
-        prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        duration = 50.0
+    train(
+        duration = 45.0
     )
