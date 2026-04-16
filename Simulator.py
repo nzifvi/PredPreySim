@@ -39,6 +39,7 @@ class Simulator:
 
         if self.haveGUI:
             self.simClient = pybullet.connect(pybullet.GUI)
+            self.birdsEyeView()
         else:
             self.simClient = pybullet.connect(pybullet.DIRECT)
 
@@ -162,6 +163,7 @@ class Simulator:
             )
 
             if self.haveGUI and step % 5 == 0:
+                self.visualiseCommunication()
                 time.sleep(self.timeStep * 2)
 
             currentTime += self.timeStep
@@ -567,3 +569,54 @@ class Simulator:
             preyDiff,
             dim = 2
         )
+
+    def birdsEyeView(self) -> None:
+        if not self.haveGUI:
+            return
+        pybullet.resetDebugVisualizerCamera(
+            cameraDistance = 25,
+            cameraYaw      = 0,
+            cameraPitch    = -89,
+            cameraTargetPosition = [0, 0, 0]
+        )
+
+    def visualiseCommunication(self) -> None:
+        if not self.haveGUI:
+            return
+
+        if not hasattr(self, '_messageLineIDs'):
+            self._messageLineIDs = []
+
+        for lineID in self._messageLineIDs:
+            pybullet.removeUserDebugItem(lineID)
+        self._messageLineIDs = []
+
+        for p in self.predators:
+            if hasattr(p, 'lastMessage') and p.lastMessage is not None:
+                msg = p.lastMessage
+                pos = p.position
+
+                msgEnd = [pos[0] + msg[0] * 2.0, pos[1] + msg[1] * 2.0, 0.5]
+                lineID = pybullet.addUserDebugLine(
+                    lineFromXYZ = [pos[0], pos[1], 0.5],
+                    lineToXYZ   = msgEnd,
+                    lineColorRGB = [1, 0, 0],
+                    lineWidth    = 3,
+                    lifeTime     = 0.1
+                )
+                self._messageLineIDs.append(lineID)
+
+        for p in self.prey:
+            if hasattr(p, 'lastMessage') and p.lastMessage is not None:
+                msg = p.lastMessage
+                pos = p.position
+
+                msgEnd = [pos[0] + msg[0] * 2.0, pos[1] + msg[1] * 2.0, 0.5]
+                lineID = pybullet.addUserDebugLine(
+                    lineFromXYZ=[pos[0], pos[1], 0.5],
+                    lineToXYZ=msgEnd,
+                    lineColorRGB=[0, 1, 0],
+                    lineWidth=3,
+                    lifeTime=0.1
+                )
+                self._messageLineIDs.append(lineID)

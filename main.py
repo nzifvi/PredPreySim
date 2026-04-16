@@ -21,7 +21,7 @@ def train(duration):
     generationController = GenerationController(
         predPopSize=16,
         preyPopSize=16,
-        checkpointControl=5
+        checkpointControl=1
     )
 
     predAvgHistory = []
@@ -407,9 +407,15 @@ def plotGenerationalFitness() -> None:
     print("✓ Saved plot: generational_fitness_combined.png")
     plt.show()
 
-
-
 if __name__ == "__main__":
+    """
+    observe(
+        generationNo = 185,
+        duration = 50.0,
+        predators = [0, 1, 2, 3],
+        prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    )
+    """
     train(
-        duration = 45.0
+        duration = 50.0
     )

@@ -1,6 +1,6 @@
 # predator fitness function term weights
 CATCH_REWARD_WEIGHT = 150.0
-TEAM_HUNT_BONUS_WEIGHT = 75.0
+TEAM_HUNT_BONUS_WEIGHT = 85.0
 PREDATOR_PREY_PRESSURE_WEIGHT = 75.0
 
 # prey fitness function term weights
