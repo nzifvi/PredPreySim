@@ -408,14 +408,6 @@ def plotGenerationalFitness() -> None:
     plt.show()
 
 if __name__ == "__main__":
-    """
-    observe(
-        generationNo = 185,
-        duration = 50.0,
-        predators = [0, 1, 2, 3],
-        prey = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-    )
-    """
     train(
         duration = 50.0
     )
