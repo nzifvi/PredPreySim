@@ -409,5 +409,5 @@ def plotGenerationalFitness() -> None:
 
 if __name__ == "__main__":
     train(
-        duration = 50.0
+        duration = 45.0
     )
