@@ -407,6 +407,29 @@ def plotGenerationalFitness() -> None:
     print("✓ Saved plot: generational_fitness_combined.png")
     plt.show()
 
+def plotAncestralContest(results:dict) -> None:
+    currentGen = results["currentGeneration"]
+    opponentGenerations = results["opponentGenerations"]
+    predPerformance = results["predPerformance"]
+    preyPerformance = results["preyPerformance"]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (14, 6))
+    ax1.plot(
+        opponentGenerations,
+        predPerformance
+    )
+
+    ax2.plot(
+        opponentGenerations,
+        preyPerformance
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+
 if __name__ == "__main__":
     train(
         duration = 45.0

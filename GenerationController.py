@@ -91,7 +91,6 @@ def evaluate(args) -> tuple:
 
     return finalPredatorTelemetry, finalPreyTelemetry, capturedMessageLog
 
-
 def saveMessageLog(messageLog, generationNo):
     if not messageLog:
         return
@@ -170,7 +169,7 @@ class GenerationController:
 
     def _initDescendantGeneration(self):
         self.predPopSize, self.preyPopSize = self._readPopulationSize()
-        self.currentPredatorGeneration, self.currentPreyGeneration = self._loadGeneration()
+        self.currentPredatorGeneration, self.currentPreyGeneration = self._loadGeneration(self.generationNo)
 
     def _readRecentCheckpoint(self) -> int:
         path = os.path.join("Generations", "GenerationCount.txt")
@@ -262,15 +261,15 @@ class GenerationController:
         except Exception as e:
             raise ValueError(f"Error saving binary data at generation {self.generationNo}: {e}") from e
 
-    def _loadGeneration(self) -> list:
+    def _loadGeneration(self, genNo:int) -> tuple:
         predPopulation = []
         preyPopulation = []
 
         for genotypeID in range(self.predPopSize):
-            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator=True)
+            nn = NeuralNetwork.NeuralNetwork(genNo, genotypeID, isPredator=True)
             predPopulation.append(
                 {
-                    "generationNo": self.generationNo,
+                    "generationNo": genNo,
                     "genotypeID": genotypeID,
                     "genotypeNN": nn,
                     "genotype": self._flattenNeuralNetwork(nn),
@@ -279,10 +278,10 @@ class GenerationController:
             )
 
         for genotypeID in range(self.preyPopSize):
-            nn = NeuralNetwork.NeuralNetwork(self.generationNo, genotypeID, isPredator=False)
+            nn = NeuralNetwork.NeuralNetwork(genNo, genotypeID, isPredator=False)
             preyPopulation.append(
                 {
-                    "generationNo": self.generationNo,
+                    "generationNo": genNo,
                     "genotypeID": genotypeID,
                     "genotypeNN": nn,
                     "genotype": self._flattenNeuralNetwork(nn),
@@ -613,6 +612,67 @@ class GenerationController:
                     "alive": telemetry["alive"],
                     "groupingScore": telemetry["groupingScore"]
                 })
+
+    def ancestralOpponentContests(self, duration:float = 30.0, sampleRate:int = 10) -> dict:
+        originalPredators = self.currentPredatorGeneration
+        originalPrey      = self.currentPreyGeneration
+
+        generations = self._scanGenerations()
+        opponentGenerations = generations[::sampleRate]
+
+        predPerformance = []
+        preyPerformance = []
+
+        for i, opponentGen in enumerate(opponentGenerations):
+            opponentPredators, opponentPrey = self._loadGeneration(opponentGen)
+            self.currentPredatorGeneration = originalPredators
+            self.currentPreyGeneration = opponentPrey
+
+            _, predDiagnostics, _, _ = self._runSimulator(duration = duration)
+            predPerformance.append(
+                predDiagnostics["totalFitness"]
+            )
+
+            self.currentPredatorGeneration = opponentPredators
+            self.currentPreyGeneration = originalPrey
+            _, _, _, preyTelemetry = self._runSimulator(duration = duration)
+            preyFitnesses = []
+            for gID, telemetry in preyTelemetry.items():
+                preyFitnesses.append(FitnessFunctions.calculatePreyFitness(
+                    {
+                        "timeAlive" : telemetry["timeAlive"],
+                        "alive" : telemetry["alive"] >= 0.5,
+                        "groupingScore" : telemetry["groupingScore"]
+                    }
+                ))
+            preyPerformance.append(
+                sum(preyFitnesses) / len(preyFitnesses)
+            )
+
+        self.currentPredatorGeneration = originalPredators
+        self.currentPreyGeneration     = originalPrey
+
+        return {
+            "currentGeneration"   : self.generationNo,
+            "opponentGenerations" : opponentGenerations,
+            "predPerformance"     : predPerformance,
+            "preyPerformance"     : preyPerformance
+        }
+
+
+
+
+    def _scanGenerations(self) -> list:
+        generations = []
+        for item in os.listdir("Generations"):
+            if item.startswith("Generation") and os.path.isdir(os.path.join("Generations", item)):
+                try:
+                    generations.append(
+                        int(item.replace("Generation", ""))
+                    )
+                except ValueError:
+                    continue
+        return sorted(generations)
 
 def calculateDescriptiveStatisticsFromGeneration(generation: list) -> tuple:
     if not generation:
