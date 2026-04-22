@@ -284,7 +284,10 @@ def plotGenerationalFitness() -> None:
     i = 0
     while i <= genCount:
         generations.append(i)
-        i = i +5
+        if i < 200:
+            i = i +5
+        else:
+            i = i + 1
 
     preyGenerationFitness = []
     predGenerationFitness = []
@@ -431,6 +434,4 @@ def plotAncestralContest(results:dict) -> None:
 
 
 if __name__ == "__main__":
-    train(
-        duration = 35.0
-    )
+    plotGenerationalFitness()

@@ -271,7 +271,7 @@ def calculateGenerationFitnessStatistics(generationNo:int) -> dict:
 
 
 
-def analyseAutocorrelation(maxLag:int = 50, genStep:int = 5) -> dict:
+def analyseAutocorrelation(maxLag:int = 50) -> dict:
     generations = []
     predatorFitness = []
     preyFitness = []
@@ -279,12 +279,17 @@ def analyseAutocorrelation(maxLag:int = 50, genStep:int = 5) -> dict:
     with open("Generations/GenerationCount.txt", "r") as f:
         genCount = int(f.read())
 
-    for gen in range(0, genCount + 1, genStep):
-        fitnessStats = calculateGenerationFitnessStatistics(gen)
-        generations.append(gen)
+    i = 0
+    while i <= genCount:
+        fitnessStats = calculateGenerationFitnessStatistics(i)
+        generations.append(i)
 
         predatorFitness.append(fitnessStats["avgPredFitness"])
         preyFitness.append(fitnessStats["avgPreyFitness"])
+        if i < 200:
+            i = i + 5
+        else:
+            i = i + 1
 
     generations = numpy.array(generations)
     predatorFitness = numpy.array(predatorFitness)
