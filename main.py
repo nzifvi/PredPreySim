@@ -432,5 +432,5 @@ def plotAncestralContest(results:dict) -> None:
 
 if __name__ == "__main__":
     train(
-        duration = 45.0
+        duration = 35.0
     )
