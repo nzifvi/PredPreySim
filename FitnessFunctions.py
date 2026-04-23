@@ -52,6 +52,9 @@ def calculatePreyFitness(preyTelemetry) -> float:
     if meanNearestPredatorDistance is not None:
         escapeBonus = (meanNearestPredatorDistance / 4.0) * ESCAPE_BONUS_WEIGHT
 
-    fitness = survivalReward + completionBonus + groupingBonus + escapeBonus
+    meanCommMagnitude = preyTelemetry.get("meanCommMagnitude", 0.0)
+    commBonus = meanCommMagnitude * COMM_BONUS_WEIGHT
+
+    fitness = survivalReward + completionBonus + groupingBonus + escapeBonus + commBonus
 
     return max(0.0, fitness)
