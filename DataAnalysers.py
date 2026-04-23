@@ -7,8 +7,8 @@ from typing import Optional
 import os
 import numpy
 import pandas
-from scipy import signal, stats
-from statsmodels.tsa.stattools import acf
+#from scipy import signal, stats
+#from statsmodels.tsa.stattools import acf
 import matplotlib.pyplot as plt
 
 import FitnessFunctions

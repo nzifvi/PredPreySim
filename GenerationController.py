@@ -123,14 +123,14 @@ class GenerationController:
         self.totalParams = sum(layer["totalWeights"] + layer["biases"] for layer in self.nnBlueprint)
 
         self.predEvolver = Evolver.Evolver(
-            tournamentSize=4,
-            mutationRate=0.10,
-            sigma=0.08
+            tournamentSize = 2,
+            mutationRate   = 0.30,
+            sigma          = 0.1
         )
         self.preyEvolver = Evolver.Evolver(
-            tournamentSize=3,
-            mutationRate=0.15,
-            sigma=0.1
+            tournamentSize = 2,
+            mutationRate   = 0.30,
+            sigma          = 0.1
         )
 
         if self.generationNo == 0:
@@ -361,6 +361,7 @@ class GenerationController:
             print(e)
 
     def _runSimulator(self, duration) -> tuple:
+        print("    - Running simulations")
         predators = [
             (p["genotypeID"], p["genotypeNN"]) for p in self.currentPredatorGeneration
         ]
@@ -385,6 +386,7 @@ class GenerationController:
         with ProcessPoolExecutor(max_workers = max(WORKER_COUNT, len(tasks))) as executor:
             results = list(executor.map(evaluate, tasks))
 
+        print("    - Simulations finished\n    - Processing telemetry data")
         idLinkedPredatorTelemetry = {
             predator["genotypeID"] : {
                 "catches" : 0.0,
@@ -479,9 +481,11 @@ class GenerationController:
             for metric in aggregatedPredatorDiagnostics:
                 aggregatedPredatorDiagnostics[metric] /= predatorCount
 
+        print("    - Telemetry data processed: fitness scores calculated")
         return savedMessageLog, aggregatedPredatorDiagnostics, idLinkedPredatorTelemetry, idLinkedPreyTelemetry
 
     def run(self, duration) -> tuple:
+        print(f"! Simulating generation {self.generationNo}")
         messageLog, predatorDiagnostics, predatorTelemetryByID, preyTelemetryByID = self._runSimulator(duration)
 
         predData = calculateDescriptiveStatisticsFromGeneration(self.currentPredatorGeneration)
@@ -539,6 +543,7 @@ class GenerationController:
                 isPredator=False
             )
 
+        print("! Generation fully simulated")
         self.generationNo += 1
         return predData, preyData
 
