@@ -124,6 +124,8 @@ class Simulator:
         predatorNearestPreyDistanceSum   = [0.0] * self.numPredators
         predatorNearestPreyDistanceCount = [0.0] * self.numPredators
 
+        predatorCommMagnitudes = [[] for _ in range(self.numPredators)]
+        preyCommMagnitudes     = [[] for _ in range(self.numPrey)]
 
         preyGrouping                     = [0.0] * self.numPrey
         preyNearestPredatorDistanceSum   = [0.0] * self.numPrey
@@ -139,8 +141,18 @@ class Simulator:
 
             self._updateReceivedMessages()
 
-            predatorActions = self._getPredatorActions(predatorNNs, predatorGenotypeIDs, step)
-            preyActions = self._getPreyActions(preyNNs, preyGenotypeIDs, step)
+            predatorActions = self._getPredatorActions(
+                predatorNNs,
+                predatorGenotypeIDs,
+                step,
+                predatorCommMagnitudes
+            )
+            preyActions = self._getPreyActions(
+                preyNNs,
+                preyGenotypeIDs,
+                step,
+                preyCommMagnitudes
+            )
 
             self._applyPredatorActions(predatorActions)
             self._applyPreyActions(preyActions)
@@ -176,7 +188,10 @@ class Simulator:
                     "teamHuntScore"           : predatorTeamHuntScore[i] / max(step, 1),
                     "meanNearestPreyDistance" : (
                         predatorNearestPreyDistanceSum[i] / predatorNearestPreyDistanceCount[i] if predatorNearestPreyDistanceCount[i] > 0 else self.arenaSize
-                    )
+                    ),
+                    "meanCommMagnitude" : (
+                        sum(predatorCommMagnitudes[i]) / len(predatorCommMagnitudes[i])
+                    ) if len(predatorCommMagnitudes[i]) > 0 else 0.0
                 }
                 for i in range(len(self.predators))
             ],
@@ -187,7 +202,10 @@ class Simulator:
                     "groupingScore" : preyGrouping[i] / max(step, 1),
                     "meanNearestPredatorDistance" : (
                         preyNearestPredatorDistanceSum[i] / preyNearestPredatorDistanceCount[i] if preyNearestPredatorDistanceCount[i] > 0 else self.arenaSize
-                    )
+                    ),
+                    "meanCommMagnitude" : (
+                        sum(preyCommMagnitudes[i]) / len(preyCommMagnitudes[i])
+                    ) if len(preyCommMagnitudes[i]) > 0 else 0.0
                 }
                 for i in range(len(self.prey))
             ],
@@ -243,7 +261,7 @@ class Simulator:
 
             prey.receivedMessage = self._averageAllyMessages(self.prey, prey)
 
-    def _getPredatorActions(self, predatorNNs, predatorGenotypeIDs, step) -> list:
+    def _getPredatorActions(self, predatorNNs, predatorGenotypeIDs, step, predatorCommMagnitudes) -> list:
         predatorActions = []
 
         for i, predator in enumerate(self.predators):
@@ -255,33 +273,12 @@ class Simulator:
                     predator.hiddenState,
                     predator.receivedMessage
                 )
-            """"
-            if i == 0 and step % 240 == 0:
-                self._debugObservations(
-                    "0th Predator Observations",
-                    predatorObservation,
-                    True
-                )
-                obs = predatorObservation.view(-1).cpu().numpy()
-                mov = movement.view(-1).cpu().numpy()
-                actualMov = numpy.clip(mov, -1.0, 1.0)
-
-                dx = obs[9]
-                dy = obs[10]
-                dist = obs[11]
-
-                alignment = dx * actualMov[0] + dy * actualMov[1]
-
-                print("Predator Policy Check:")
-                print(f"    - Nearest Prey Direction   : (x={dx:.3f}, y={dy:.3f})")
-                print(f"    - Nearest Prey Distance    : {dist:.3f}")
-                print(f"    - Raw Predator Movement    : (x={mov[0]:.3f}, y={mov[1]:.3f})")
-                print(f"    - Actual Predator Movement : (x={actualMov[0]:.3f}, y={actualMov[1]:.3f})")
-                print(f"    - Chase Alignment          : {alignment:.3f}")
-            """
 
             predator.hiddenState = newHidden
             predator.message = communication
+            predatorCommMagnitudes[i].append(
+                communication.abs().mean().item()
+            )
 
             messageContext = predator.getMessageContext(
                 self.predators,
@@ -308,7 +305,7 @@ class Simulator:
 
         return predatorActions
 
-    def _getPreyActions(self, preyNNs, preyGenotypeIDs, step) -> list:
+    def _getPreyActions(self, preyNNs, preyGenotypeIDs, step, preyCommMagnitudes) -> list:
         preyActions = []
 
         for i, prey in enumerate(self.prey):
@@ -316,6 +313,7 @@ class Simulator:
                 prey.message = torch.zeros(1, 2, dtype=torch.float32)
                 prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
                 preyActions.append(None)
+                preyCommMagnitudes[i].append(0.0)
                 continue
 
             preyObservation = prey.getObservation(self.predators, self.prey, self.visionRadius).view(1, 19)
@@ -353,6 +351,9 @@ class Simulator:
             """
             prey.hiddenState = newHidden
             prey.message = communication
+            preyCommMagnitudes[i].append(
+                communication.abs().mean().item()
+            )
 
             messageContext = prey.getMessageContext(
                 self.predators,

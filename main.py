@@ -431,7 +431,244 @@ def plotAncestralContest(results:dict) -> None:
     plt.show()
 
 
+# analyze_evolution.py
 
+import os
+import csv
+import matplotlib.pyplot as plt
+import statistics
+
+
+def analyze_all_generations():
+    """Analyze all generation data."""
+
+    generations = []
+
+    # Predator metrics
+    pred_mean_catches = []
+    pred_max_catches = []
+    pred_mean_teamwork = []
+    pred_max_teamwork = []
+    pred_mean_pressure = []
+
+    # Prey metrics
+    prey_survival_rate = []
+    prey_mean_grouping = []
+    prey_max_grouping = []
+
+    print("Scanning generations...")
+
+    for gen in range(312):  # 0 to 311
+        pred_path = f"Generations/Generation{gen}/predatorTelemetry.csv"
+        prey_path = f"Generations/Generation{gen}/preyTelemetry.csv"
+
+        if not os.path.exists(pred_path):
+            continue
+
+        generations.append(gen)
+
+        # Analyze predators
+        with open(pred_path, 'r') as f:
+            reader = csv.DictReader(f)
+            data = list(reader)
+
+            catches = [float(r['catches']) for r in data]
+            teamwork = [float(r['teamHuntScore']) for r in data]
+            pressure = [float(r['meanNearestPreyDistance']) for r in data]
+
+            pred_mean_catches.append(statistics.mean(catches))
+            pred_max_catches.append(max(catches))
+            pred_mean_teamwork.append(statistics.mean(teamwork))
+            pred_max_teamwork.append(max(teamwork))
+            pred_mean_pressure.append(statistics.mean(pressure))
+
+        # Analyze prey
+        if os.path.exists(prey_path):
+            with open(prey_path, 'r') as f:
+                reader = csv.DictReader(f)
+                data = list(reader)
+
+                alive = [float(r['alive']) for r in data]
+                grouping = [float(r['groupingScore']) for r in data]
+
+                prey_survival_rate.append(statistics.mean(alive) * 100)
+                prey_mean_grouping.append(statistics.mean(grouping))
+                prey_max_grouping.append(max(grouping))
+
+    return {
+        'generations': generations,
+        'pred_mean_catches': pred_mean_catches,
+        'pred_max_catches': pred_max_catches,
+        'pred_mean_teamwork': pred_mean_teamwork,
+        'pred_max_teamwork': pred_max_teamwork,
+        'pred_mean_pressure': pred_mean_pressure,
+        'prey_survival_rate': prey_survival_rate,
+        'prey_mean_grouping': prey_mean_grouping,
+        'prey_max_grouping': prey_max_grouping,
+    }
+
+
+def plot_evolution(data):
+    """Create visualization of evolution."""
+
+    fig, axes = plt.subplots(3, 2, figsize=(15, 12))
+
+    # Predator catches
+    axes[0, 0].plot(data['generations'], data['pred_mean_catches'], label='Mean', alpha=0.7)
+    axes[0, 0].plot(data['generations'], data['pred_max_catches'], label='Best', alpha=0.7)
+    axes[0, 0].set_title('Predator Catches per Generation')
+    axes[0, 0].set_xlabel('Generation')
+    axes[0, 0].set_ylabel('Catches')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+
+    # Predator teamwork
+    axes[0, 1].plot(data['generations'], data['pred_mean_teamwork'], label='Mean', alpha=0.7)
+    axes[0, 1].plot(data['generations'], data['pred_max_teamwork'], label='Best', alpha=0.7)
+    axes[0, 1].set_title('Predator Teamwork Score')
+    axes[0, 1].set_xlabel('Generation')
+    axes[0, 1].set_ylabel('Teamwork Score')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+
+    # Predator pressure
+    axes[1, 0].plot(data['generations'], data['pred_mean_pressure'], alpha=0.7)
+    axes[1, 0].set_title('Mean Distance to Nearest Prey')
+    axes[1, 0].set_xlabel('Generation')
+    axes[1, 0].set_ylabel('Distance')
+    axes[1, 0].grid(True, alpha=0.3)
+
+    # Prey survival
+    axes[1, 1].plot(data['generations'], data['prey_survival_rate'], alpha=0.7, color='green')
+    axes[1, 1].set_title('Prey Survival Rate')
+    axes[1, 1].set_xlabel('Generation')
+    axes[1, 1].set_ylabel('Survival %')
+    axes[1, 1].grid(True, alpha=0.3)
+
+    # Prey grouping
+    axes[2, 0].plot(data['generations'], data['prey_mean_grouping'], label='Mean', alpha=0.7)
+    axes[2, 0].plot(data['generations'], data['prey_max_grouping'], label='Best', alpha=0.7)
+    axes[2, 0].set_title('Prey Grouping Score')
+    axes[2, 0].set_xlabel('Generation')
+    axes[2, 0].set_ylabel('Grouping Score')
+    axes[2, 0].legend()
+    axes[2, 0].grid(True, alpha=0.3)
+
+    # Combined fitness view
+    axes[2, 1].plot(data['generations'], data['pred_mean_catches'], label='Pred Catches', alpha=0.7)
+    axes[2, 1].plot(data['generations'], data['prey_survival_rate'], label='Prey Survival %', alpha=0.7)
+    axes[2, 1].set_title('Predator vs Prey Performance')
+    axes[2, 1].set_xlabel('Generation')
+    axes[2, 1].set_ylabel('Score')
+    axes[2, 1].legend()
+    axes[2, 1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig('evolution_analysis.png', dpi=150)
+    print("\n✓ Saved plot: evolution_analysis.png")
+    plt.show()
+
+
+def detect_plateau(data):
+    """Detect when evolution plateaued."""
+
+    catches = data['pred_mean_catches']
+
+    # Look for 50-generation windows with < 5% improvement
+    window = 50
+    threshold = 0.05
+
+    for i in range(len(catches) - window):
+        start_val = catches[i]
+        end_val = catches[i + window]
+
+        if start_val > 0:
+            improvement = (end_val - start_val) / start_val
+
+            if abs(improvement) < threshold:
+                gen = data['generations'][i]
+                print(f"\n⚠️  PLATEAU DETECTED around Generation {gen}")
+                print(f"   Improvement over next 50 gens: {improvement * 100:.1f}%")
+                return gen
+
+    print("\n✓ No plateau detected - still improving")
+    return None
+
+
+def analyze_latest_generation(gen_no=311):
+    """Deep dive into latest generation."""
+
+    print(f"\n{'=' * 60}")
+    print(f"DETAILED ANALYSIS: GENERATION {gen_no}")
+    print(f"{'=' * 60}")
+
+    # Predators
+    pred_path = f"Generations/Generation{gen_no}/predatorTelemetry.csv"
+
+    if os.path.exists(pred_path):
+        with open(pred_path, 'r') as f:
+            reader = csv.DictReader(f)
+            data = list(reader)
+
+            catches = [float(r['catches']) for r in data]
+            teamwork = [float(r['teamHuntScore']) for r in data]
+            pressure = [float(r['meanNearestPreyDistance']) for r in data]
+
+            print("\nPREDATORS:")
+            print(f"  Population Size: {len(data)}")
+            print(f"  Mean Catches: {statistics.mean(catches):.2f}")
+            print(f"  Best Catches: {max(catches):.2f}")
+            print(f"  Worst Catches: {min(catches):.2f}")
+            print(f"  Std Dev: {statistics.stdev(catches):.2f}")
+
+            print(f"\n  Mean Teamwork Score: {statistics.mean(teamwork):.2f}")
+            print(f"  Best Teamwork Score: {max(teamwork):.2f}")
+
+            if max(teamwork) < 5.0:
+                print("  ⚠️  LOW TEAMWORK - Predators NOT coordinating effectively")
+            elif max(teamwork) < 20.0:
+                print("  ⚠️  MODERATE TEAMWORK - Some coordination but room to improve")
+            else:
+                print("  ✓ HIGH TEAMWORK - Good coordination")
+
+            print(f"\n  Mean Nearest Prey Distance: {statistics.mean(pressure):.2f}")
+
+            if statistics.mean(pressure) > 5.0:
+                print("  ⚠️  HIGH DISTANCE - Predators struggle to close in on prey")
+            else:
+                print("  ✓ GOOD PRESSURE - Predators stay close to prey")
+
+    # Prey
+    prey_path = f"Generations/Generation{gen_no}/preyTelemetry.csv"
+
+    if os.path.exists(prey_path):
+        with open(prey_path, 'r') as f:
+            reader = csv.DictReader(f)
+            data = list(reader)
+
+            alive = [float(r['alive']) for r in data]
+            time_alive = [float(r['timeAlive']) for r in data]
+            grouping = [float(r['groupingScore']) for r in data]
+
+            print("\nPREY:")
+            print(f"  Population Size: {len(data)}")
+            print(f"  Survival Rate: {statistics.mean(alive) * 100:.1f}%")
+            print(f"  Mean Time Alive: {statistics.mean(time_alive):.2f}s")
+
+            print(f"\n  Mean Grouping Score: {statistics.mean(grouping):.2f}")
+            print(f"  Best Grouping Score: {max(grouping):.2f}")
+
+            if max(grouping) < 5.0:
+                print("  ⚠️  LOW GROUPING - Prey NOT coordinating")
+            elif max(grouping) < 20.0:
+                print("  ⚠️  MODERATE GROUPING - Some coordination")
+            else:
+                print("  ✓ HIGH GROUPING - Strong coordination")
 
 if __name__ == "__main__":
-    plotGenerationalFitness()
+    observe(
+        generationNo = 311,
+        predators = [0, 1, 2, 3],
+        prey = list(range(16)),
+        duration = 30.0
+    )
