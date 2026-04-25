@@ -22,7 +22,6 @@ class SuppressOutput:
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
 
-
 class Simulator:
     def __init__(self, simConfig=SimulationConfig.SimulationConfig, numPredators=4, numPrey=8, simDuration=30.0, gui=True):
         self.numPredators = numPredators
@@ -50,13 +49,19 @@ class Simulator:
         self._initSimulator()
 
         self.predators = []
-        self.prey = []
+        self.prey      = []
 
         self.messageLog = []
 
         self.predToPredDistances = None
         self.predToPreyDistances = None
         self.preyToPreyDistances = None
+
+        self.foodSources          = []
+        self.minFoodAmount        = simConfig.minFoodAmount
+        self.maxFoodAmount        = simConfig.maxFoodAmount
+        self.preyEnergyValue      = simConfig.preyEnergyValue
+        self.arenaFoodEnergyValue = simConfig.arenaFoodEnergyValue
 
     def _initSimulator(self):
         self.plane = pybullet.loadURDF("plane.urdf")
@@ -85,9 +90,10 @@ class Simulator:
         for agent in self.predators + self.prey:
             pybullet.removeBody(agent.agent)
 
-        self.predators = []
-        self.prey = []
-        self.messageLog = []
+        self.predators   = []
+        self.prey        = []
+        self.messageLog  = []
+        self.foodSources = []
 
         for _ in range(self.numPredators):
             startingX = numpy.random.uniform(-self.arenaSize / 3, self.arenaSize / 3)
@@ -111,8 +117,42 @@ class Simulator:
             )
             self.prey.append(prey)
 
+        foodAmount = numpy.random.randint(
+            self.minFoodAmount,
+            self.maxFoodAmount
+        )
+        for _ in range(foodAmount):
+            xPos = numpy.random.uniform(
+                -self.arenaSize / 3,
+                self.arenaSize  / 3
+            )
+            yPos = numpy.random.uniform(
+                -self.arenaSize / 3,
+                self.arenaSize  / 3
+            )
+
+            foodVisual = pybullet.createVisualShape(
+                shapeType = pybullet.GEOM_SPHERE,
+                radius = 0.8,
+                rgbaColor = [0.3, 0.9, 0.0, 1.0]
+            )
+            foodBody = pybullet.createMultiBody(
+                baseMass = 0,
+                baseVisualShapeIndex = foodVisual,
+                basePosition = [xPos, yPos, 0.8]
+            )
+            self.foodSources.append(
+                {
+                    "body"        : foodBody,
+                    "position"    : [xPos, yPos],
+                    "available"   : True,
+                    "respawnTime" : 0.0
+                }
+            )
+
         for _ in range(10):
             pybullet.stepSimulation()
+
 
     def runSimulation(self, predatorNNs, preyNNs, predatorGenotypeIDs = None, preyGenotypeIDs = None):
         self.reset()
@@ -121,21 +161,17 @@ class Simulator:
 
         preyCaught                       = [0] * self.numPredators
         predatorTeamHuntScore            = [0.0] * self.numPredators
-        predatorNearestPreyDistanceSum   = [0.0] * self.numPredators
-        predatorNearestPreyDistanceCount = [0.0] * self.numPredators
 
         predatorCommMagnitudes = [[] for _ in range(self.numPredators)]
         preyCommMagnitudes     = [[] for _ in range(self.numPrey)]
 
         preyGrouping                     = [0.0] * self.numPrey
-        preyNearestPredatorDistanceSum   = [0.0] * self.numPrey
-        preyNearestPredatorDistanceCount = [0.0] * self.numPrey
 
         currentTime                      = 0.0
         step                             = 0
 
         while currentTime < self.simDuration:
-            self._updateAllStates()
+            self._updateAllStates(self.timeStep)
             self._computeDistanceMatrices()
 
 
@@ -157,22 +193,17 @@ class Simulator:
             self._applyPredatorActions(predatorActions)
             self._applyPreyActions(preyActions)
 
+            self._updatePreyEating(currentTime)
+            self._respawnFood(currentTime)
+
             pybullet.stepSimulation()
 
-            self._updateAllStates()
+            self._updateAllStates(self.timeStep)
             self._computeDistanceMatrices()
 
             self._processCatches(preyCaught, predatorTeamHuntScore)
             self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
             self._updatePreyGrouping(preyGrouping)
-            self._updatePredatorPreyPressure(
-                predatorNearestPreyDistanceSum,
-                predatorNearestPreyDistanceCount
-            )
-            self._updatePreyPredatorEscape(
-                preyNearestPredatorDistanceSum,
-                preyNearestPredatorDistanceCount
-            )
 
             if self.haveGUI and step % 5 == 0:
                 self.visualiseCommunication()
@@ -186,26 +217,22 @@ class Simulator:
                 {
                     "catches"                 : preyCaught[i],
                     "teamHuntScore"           : predatorTeamHuntScore[i] / max(step, 1),
-                    "meanNearestPreyDistance" : (
-                        predatorNearestPreyDistanceSum[i] / predatorNearestPreyDistanceCount[i] if predatorNearestPreyDistanceCount[i] > 0 else self.arenaSize
+                    "meanCommMagnitude"       : (
+                        sum(predatorCommMagnitudes[i]) / len(predatorCommMagnitudes[i]) if len(predatorCommMagnitudes[i]) > 0 else 0.0
                     ),
-                    "meanCommMagnitude" : (
-                        sum(predatorCommMagnitudes[i]) / len(predatorCommMagnitudes[i])
-                    ) if len(predatorCommMagnitudes[i]) > 0 else 0.0
+                    "timeAlive"               : self.predators[i].timeAlive,
+                    "finalEnergy"             : self.predators[i].energy,
                 }
                 for i in range(len(self.predators))
             ],
             "prey": [
                 {
-                    "timeAlive"     : self.prey[i].timeAlive,
-                    "alive"         : self.prey[i].isAlive,
-                    "groupingScore" : preyGrouping[i] / max(step, 1),
-                    "meanNearestPredatorDistance" : (
-                        preyNearestPredatorDistanceSum[i] / preyNearestPredatorDistanceCount[i] if preyNearestPredatorDistanceCount[i] > 0 else self.arenaSize
+                    "timeAlive"                   : self.prey[i].timeAlive,
+                    "groupingScore"               : preyGrouping[i] / max(step, 1),
+                    "meanCommMagnitude"           : (
+                        sum(preyCommMagnitudes[i]) / len(preyCommMagnitudes[i]) if len(preyCommMagnitudes[i]) > 0 else 0.0
                     ),
-                    "meanCommMagnitude" : (
-                        sum(preyCommMagnitudes[i]) / len(preyCommMagnitudes[i])
-                    ) if len(preyCommMagnitudes[i]) > 0 else 0.0
+                    "finalEnergy"                 : self.prey[i].energy,
                 }
                 for i in range(len(self.prey))
             ],
@@ -223,9 +250,9 @@ class Simulator:
             prey.message = torch.zeros(1, 2, dtype=torch.float32)
             prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
 
-    def _updateAllStates(self):
+    def _updateAllStates(self, dt:float):
         for agent in self.predators + self.prey:
-            agent.updateState()
+            agent.updateState(dt)
 
     def _averageAllyMessages(self, agents, currentAgent):
         messages = []
@@ -234,6 +261,8 @@ class Simulator:
             if agent is currentAgent:
                 continue
             if not agent.isAlive:
+                continue
+            if agent.message is None:
                 continue
 
             dist = torch.norm(agent.position - currentAgent.position)
@@ -265,7 +294,20 @@ class Simulator:
         predatorActions = []
 
         for i, predator in enumerate(self.predators):
-            predatorObservation = predator.getObservation(self.predators, self.prey, self.visionRadius).view(1, 19)
+            if not predator.isAlive:
+                predator.message = None
+                predator.receivedMessage = torch.zeros(
+                    1,
+                    2,
+                    dtype = torch.float32
+                )
+
+            predatorObservation = predator.getObservation(
+                predators    = self.predators,
+                prey         = self.prey,
+                visionRadius = self.visionRadius,
+                foodSources  = self.foodSources
+            ).view(1, 23)
 
             with torch.no_grad():
                 movement, communication, newHidden = predatorNNs[i].forward(
@@ -310,13 +352,18 @@ class Simulator:
 
         for i, prey in enumerate(self.prey):
             if not prey.isAlive:
-                prey.message = torch.zeros(1, 2, dtype=torch.float32)
+                prey.message = None
                 prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
                 preyActions.append(None)
                 preyCommMagnitudes[i].append(0.0)
                 continue
 
-            preyObservation = prey.getObservation(self.predators, self.prey, self.visionRadius).view(1, 19)
+            preyObservation = prey.getObservation(
+                predators    = self.predators,
+                prey         = self.prey,
+                visionRadius = self.visionRadius,
+                foodSources  = self.foodSources
+            ).view(1, 23)
 
             with torch.no_grad():
                 movement, communication, newHidden = preyNNs[i].forward(
@@ -324,31 +371,7 @@ class Simulator:
                     prey.hiddenState,
                     prey.receivedMessage
                 )
-            """"
-            if i == 0 and step % 240 == 0:
-                self._debugObservations(
-                    "0th Prey Observations",
-                    preyObservation,
-                    True
-                )
 
-                obs = preyObservation.view(-1).cpu().numpy()
-                mov = movement.view(-1).cpu().numpy()
-                actualMov = numpy.clip(mov, -1.0, 1.0)
-
-                dx = obs[6]
-                dy = obs[7]
-                dist = obs[8]
-
-                alignment = -(dx * actualMov[0] + dy * actualMov[1])
-
-                print("Prey Policy Check:")
-                print(f"    - Nearest Predator Direction : (x={dx:.3f}, y={dy:.3f})")
-                print(f"    - Nearest Predator Distance  : {dist:.3f}")
-                print(f"    - Raw Prey Movement          : (x={mov[0]:.3f}, y={mov[1]:.3f})")
-                print(f"    - Actual Prey Movement       : (x={actualMov[0]:.3f}, y={actualMov[1]:.3f})")
-                print(f"    - Flee Alignment             : {alignment:.3f}")
-            """
             prey.hiddenState = newHidden
             prey.message = communication
             preyCommMagnitudes[i].append(
@@ -384,6 +407,9 @@ class Simulator:
 
     def _applyPredatorActions(self, predatorActions) -> None:
         for predator, action in zip(self.predators, predatorActions):
+            if not predator.isAlive or action is None:
+                continue
+
             predator.applyAction(action)
             predator.stepTime(self.timeStep)
 
@@ -399,6 +425,9 @@ class Simulator:
         catchSupportRadius = 3.0
 
         for i, predator in enumerate(self.predators):
+            if not predator.isAlive:
+                continue
+
             for j, prey in enumerate(self.prey):
                 if not prey.isAlive:
                     continue
@@ -413,17 +442,17 @@ class Simulator:
                             nearbyPredatorIndices.append(k)
 
                     prey.kill()
-                    prey.message = torch.zeros(
-                        1,
-                        2,
-                        dtype=torch.float32
-                    )
+                    prey.message = None
                     prey.receivedMessage = torch.zeros(
                         1,
                         2,
                         dtype=torch.float32
                     )
                     preyCaught[i] += 1
+
+                    predator.eat(
+                        self.preyEnergyValue
+                    )
 
                     if predatorTeamHuntScore is not None and len(nearbyPredatorIndices) >= 2:
                         for predatorIndex in nearbyPredatorIndices:
@@ -476,21 +505,6 @@ class Simulator:
 
             preyGrouping[i] += groupingCount
 
-    def _updatePredatorPreyPressure(self, predatorNearestPreyDistanceSum, predatorNearestPreyDistanceCount):
-        for i, predator in enumerate(self.predators):
-            nearestDistance = None
-            for j, prey in enumerate(self.prey):
-                if not prey.isAlive:
-                    continue
-
-                dist = self.predToPreyDistances[i, j].item()
-                if nearestDistance is None or dist < nearestDistance:
-                    nearestDistance = dist
-
-            if nearestDistance is not None:
-                predatorNearestPreyDistanceSum[i] += nearestDistance
-                predatorNearestPreyDistanceCount[i] += 1
-
     def _updatePredatorTeamHuntScore(self, predatorTeamHuntScore) -> None:
         teamHuntRadius = 3.0
         minRequiredPredators = 2
@@ -502,6 +516,9 @@ class Simulator:
             nearbyPredatorIndices = []
 
             for i, predator in enumerate(self.predators):
+                if not predator.isAlive:
+                    continue
+
                 dist = self.predToPreyDistances[i, j].item()
                 if dist < teamHuntRadius:
                     nearbyPredatorIndices.append(i)
@@ -509,7 +526,6 @@ class Simulator:
             if len(nearbyPredatorIndices) >= minRequiredPredators:
                 for pIndex in nearbyPredatorIndices:
                     predatorTeamHuntScore[pIndex] += 1.0
-
 
     def _debugObservations(self, label, obs, isPredator) -> None:
         obs = obs.view(-1).cpu().numpy()
@@ -525,22 +541,6 @@ class Simulator:
             print(f"    - nearestPredator : direction = ({obs[6]:.3f}, {obs[7]:.3f}, {obs[8]:.3f})")
             print(f"    - nearestAllyPrey         : direction = ({obs[9]:.3f}, {obs[10]:.3f}, {obs[11]:.3f})")
             print(f"    - avgAllyPreyDirection    : ({obs[12]:.3f}, {obs[13]:.3f}")
-
-    def _updatePreyPredatorEscape(self, preyNearestPredatorDistanceSum, preyNearestPredatorDistanceCount):
-        for j, prey in enumerate(self.prey):
-            if not prey.isAlive:
-                continue
-
-            nearestDistance = None
-
-            for i, predator in enumerate(self.predators):
-                dist = self.predToPreyDistances[i, j].item()
-                if nearestDistance is None or dist <= nearestDistance:
-                    nearestDistance = dist
-
-            if nearestDistance is not None:
-                preyNearestPredatorDistanceSum[j] += nearestDistance
-                preyNearestPredatorDistanceCount[j] += 1
 
     def _computeDistanceMatrices(self) -> None:
         predPositions = torch.stack(
@@ -621,3 +621,42 @@ class Simulator:
                     lifeTime=0.1
                 )
                 self._messageLineIDs.append(lineID)
+
+    def _updatePreyEating(self, currentTime) -> None:
+        for prey in self.prey:
+            if not prey.isAlive:
+                continue
+
+            preyPos = [prey.position[0].item(), prey.position[1].item]
+
+            for food in self.foodSources:
+                if not food["available"]:
+                    continue
+
+                foodPosition = food["position"]
+                dist = numpy.linalg.norm([
+                    preyPos[0] - foodPosition[0],
+                    preyPos[1] - foodPosition[1]
+                ])
+
+                if dist < 1.5:
+                    prey.eat(self.arenaFoodEnergyValue)
+                    food["available"] = False
+                    food["respawnTime"] = currentTime + 10
+
+                pybullet.changeVisualShape(
+                    food["body"],
+                    -1,
+                    rgbaColor = [0.3, 0.9, 0.0, 0.2]
+                )
+                break
+
+    def _respawnFood(self, currentTime) -> None:
+        for food in self.foodSources:
+            if not food["available"] and currentTime >= food["respawnTime"]:
+                food["available"] = True
+                pybullet.changeVisualShape(
+                    food["body"],
+                    -1,
+                    rgbaColor = [0.3, 0.9, 0.0, 1.0]
+                )

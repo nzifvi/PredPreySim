@@ -13,10 +13,22 @@ class Agent:
 
         self.agent = self._initBody(position)
 
+        self.maxEnergy        = agentConfig.maxEnergy
+        self.energy           = self.maxEnergy
+        self.energyDrainRate  = agentConfig.energyDrainRate
+
+        self.baseSpeed        = agentConfig.baseSpeed
+        self.sprintDrainRate  = agentConfig.sprintDrainRate
+        self.sprintMultiplier = agentConfig.sprintMultiplier
+        self.isSprinting      = False
+
+        self.stomachCapacity    = 0.0
+        self.maxStomachCapacity = agentConfig.maxStomachCapacity
+
         self.position = torch.zeros(2, device=device)
         self.velocity = torch.zeros(2, device=device)
 
-        self.isAlive = True
+        self.isAlive   = True
         self.timeAlive = 0.0
 
     def _initBody(self, position):
@@ -46,7 +58,7 @@ class Agent:
         )
         return agent
 
-    def updateState(self) -> None:
+    def updateState(self, dt) -> None:
         currentPosition, _ = pybullet.getBasePositionAndOrientation(self.agent)
         currentVelocity, _ = pybullet.getBaseVelocity(self.agent)
 
@@ -61,20 +73,44 @@ class Agent:
             device=self.device
         )
 
+        if self.isAlive:
+            self._drainEnergy(dt)
+
     def applyAction(self, action):
         if not self.isAlive:
             return
 
-        action = torch.clamp(action, -1.0, 1.0).cpu().numpy()
-        force = action * self.agentConfig.maxSpeed * 10.0
+        xVelocity = action[0].item()
+        yVelocity = action[1].item()
+        if len(action >= 3):
+            sprintSignal = action[2].item()
+            self.isSprinting = (sprintSignal > 0.5 and self.energy > self.sprintDrainRate)
+        else:
+            self.isSprinting = False
+
+        xVelocity = torch.clamp(
+            torch.tensor(xVelocity), -1.0, 1.0
+        ).item()
+        yVelocity = torch.clamp(
+            torch.tensor(yVelocity), -1.0, 1.0
+        ).item()
+
+        speedMultiplier = self.sprintMultiplier if self.isSprinting else 1.0
+
+        force = [
+            xVelocity * self.baseSpeed * speedMultiplier,
+            yVelocity * self.baseSpeed * speedMultiplier,
+            0.0 # no z-axis force allowed.
+        ]
 
         pybullet.applyExternalForce(
             self.agent,
             -1,
-            forceObj=[force[0], force[1], 0.0],
+            forceObj=force,
             posObj=[0, 0, 0],
             flags=pybullet.LINK_FRAME
         )
+
         self._applyBoundaryForce()
 
     def _applyBoundaryForce(self):
@@ -105,7 +141,7 @@ class Agent:
                 flags=pybullet.WORLD_FRAME
             )
 
-    def getObservation(self, predators, prey, visionRadius):
+    def getObservation(self, predators, prey, visionRadius, foodSources = None):
         size = self.agentConfig.arenaSize
 
         if self.isPredator:
@@ -146,6 +182,21 @@ class Agent:
             device = self.device
         )
 
+        energyRatio = torch.tensor(
+            [self.energy / self.maxEnergy],
+            dtype  = torch.float32,
+            device = self.device
+        )
+
+        if foodSources is not None:
+            nearestFood = self._findNearestEntity(foodSources, visionRadius)
+        else:
+            nearestFood = torch.zeros(
+                3,
+                dtype  = torch.float32,
+                device = self.device
+            )
+
         observations = [
             normalisedVelocity,
             wallDistances,
@@ -155,12 +206,12 @@ class Agent:
             avgEnemyDirection,
             torch.tensor([visibleAllyCount], dtype = torch.float32, device = self.device),
             torch.tensor([visibleEnemyCount], dtype = torch.float32, device = self.device),
-            localNumericalAdvantage
+            localNumericalAdvantage,
+            energyRatio,
+            nearestFood
         ]
 
         return torch.cat(observations).view(1, -1)
-
-
 
     def _findNearestEntity(self, agents, visionRadius):
         minDistance = torch.tensor(visionRadius, device=self.device, dtype=torch.float32)
@@ -213,6 +264,40 @@ class Agent:
 
         return avgDirection, count
 
+    def _findNearestFood(self, foodSources, visionRadius) -> torch.tensor:
+        nearestFoodPosition = None
+        minDistance         = visionRadius
+
+        for food in foodSources:
+            if not food["available"]:
+                continue
+
+            foodPos = torch.tensor(
+                food["position"],
+                dtype = torch.float32,
+                device = self.device
+            )
+            diff = foodPos - self.position
+            dist = torch.norm(diff).item()
+            if dist < visionRadius:
+                minDistance    = dist
+                nearestFoodPosition = diff
+
+        if nearestFoodPosition is None:
+            return torch.zeros(
+                3,
+                dtype = torch.float32,
+                device = self.device
+            )
+        else:
+            direction = nearestFoodPosition / (torch.norm(nearestFoodPosition) + 1e-6)
+            normalisedDistance = torch.tensor(
+                [minDistance / visionRadius],
+                dtype = torch.float32,
+                device = self.device
+            )
+            return torch.cat([direction, normalisedDistance])
+
     def kill(self):
         self.isAlive = False
 
@@ -264,3 +349,20 @@ class Agent:
             "visibleEnemyCount" : visibleEnemyCount,
             "visibleAllyCount"  : visibleAllyCount
         }
+
+    def _drainEnergy(self, dt):
+        drainAmount = self.energyDrainRate * dt
+        if self.isSprinting:
+            drainAmount += self.sprintDrainRate * dt
+
+        self.energy -= drainAmount
+
+        if self.energy <= 0:
+            self.energy = 0
+            if self.isAlive:
+                self.kill()
+
+    def eat(self, energyGained):
+        self.energy = min(
+            self.energy + energyGained, self.maxEnergy
+        )

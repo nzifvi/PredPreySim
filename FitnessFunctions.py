@@ -1,60 +1,108 @@
 # predator fitness function term weights
-CATCH_REWARD_WEIGHT           = 80.0
-TEAM_HUNT_BONUS_WEIGHT        = 300.0
-PREDATOR_PREY_PRESSURE_WEIGHT = 75.0
-
-COMM_BONUS_WEIGHT = 150.0
+CATCH_REWARD_WEIGHT            = 80.0
+TEAM_HUNT_BONUS_WEIGHT         = 300.0
+PREDATOR_PREY_PRESSURE_WEIGHT  = 75.0
+PREDATOR_COMM_BONUS_WEIGHT     = 150.0
+PREDATOR_ENERGY_BONUS_WEIGHT   = 20.0
+PREDATOR_SURVIVAL_BONUS_WEIGHT = 10.0
+PREDATOR_STARVATION_PENALTY    = -150.0
 
 # prey fitness function term weights
 GROUPING_BONUS_WEIGHT      = 8.0
 COMPLETION_BONUS_WEIGHT    = 250
 PREY_SURVIVAL_BONUS_WEIGHT = 10.0
 ESCAPE_BONUS_WEIGHT        = 50.0
+PREY_COMM_BONUS_WEIGHT     = 150.0
+PREY_ENERGY_BONUS_WEIGHT   = 15.0
+PREY_STARVATION_PENALTY    = -100.0
 
 def calculatePredatorFitnessBreakdown(predatorTelemetry) -> dict:
-    catches = predatorTelemetry["catches"]
+    catches = predatorTelemetry.get("catches", 0)
     teamHuntScore = predatorTelemetry.get("teamHuntScore", 0.0)
-    meanNearestPreyDistance = predatorTelemetry.get("meanNearestPreyDistance", 0.0)
+    meanCommMagnitude = predatorTelemetry.get("meanCommMagnitude", 0.0)
+    timeAlive = predatorTelemetry.get("timeAlive", 0.0)
+    finalEnergy = predatorTelemetry.get("finalEnergy", 0.0)
 
     catchReward = catches * CATCH_REWARD_WEIGHT
     teamHuntBonus = teamHuntScore * TEAM_HUNT_BONUS_WEIGHT
+    commBonus = meanCommMagnitude * PREDATOR_COMM_BONUS_WEIGHT
 
-    preyPressureBonus = 0.0
-    if meanNearestPreyDistance is not None:
-        preyPressureBonus = (1.0 / (1.0 + meanNearestPreyDistance)) * PREDATOR_PREY_PRESSURE_WEIGHT
+    # Survival: reward per second alive
+    survivalBonus = timeAlive * PREDATOR_SURVIVAL_BONUS_WEIGHT
 
-    meanCommMagnitude = predatorTelemetry.get("meanCommMagnitude", 0.0)
-    commBonus = meanCommMagnitude * COMM_BONUS_WEIGHT
+    # Energy: reward for ending with high energy
+    energyBonus = (finalEnergy / 100.0) * PREDATOR_ENERGY_BONUS_WEIGHT
 
-    totalFitness = catchReward + teamHuntBonus + preyPressureBonus + commBonus
+    # Starvation: penalty if very low energy
+    starvationPenalty = 0.0
+    if finalEnergy < 5.0:  # Consider < 5 energy as "starved"
+        starvationPenalty = PREDATOR_STARVATION_PENALTY
+
+    totalFitness = (
+            catchReward +
+            teamHuntBonus +
+            commBonus +
+            survivalBonus +
+            energyBonus +
+            starvationPenalty
+    )
+
     totalFitness = max(0.0, totalFitness)
+
     return {
-        "catches" : catches,
-        "catchReward" : catchReward,
-        "teamHuntBonus" : teamHuntBonus,
-        "preyPressureBonus" : preyPressureBonus,
-        "commBonus" : commBonus,
-        "totalFitness" : totalFitness
+        "catches": catches,
+        "catchReward": catchReward,
+        "teamHuntBonus": teamHuntBonus,
+        "commBonus": commBonus,
+        "survivalBonus": survivalBonus,
+        "energyBonus": energyBonus,
+        "starvationPenalty": starvationPenalty,
+        "totalFitness": totalFitness,
     }
 
 def calculatePredatorFitness(predatorTelemetry) -> float:
     return calculatePredatorFitnessBreakdown(predatorTelemetry)["totalFitness"]
 
-def calculatePreyFitness(preyTelemetry) -> float:
-    survivalReward = preyTelemetry["timeAlive"] * PREY_SURVIVAL_BONUS_WEIGHT
-    completionBonus = 0.0
-    if preyTelemetry["alive"]:
-        completionBonus = COMPLETION_BONUS_WEIGHT
-    groupingBonus = preyTelemetry.get("groupingScore", 0.0) * GROUPING_BONUS_WEIGHT
-
-    meanNearestPredatorDistance = preyTelemetry.get("meanNearestPredatorDistance", 0.0)
-    escapeBonus = 0.0
-    if meanNearestPredatorDistance is not None:
-        escapeBonus = (meanNearestPredatorDistance / 4.0) * ESCAPE_BONUS_WEIGHT
-
+def calculatePreyFitnessBreakdown(preyTelemetry) -> dict:
+    timeAlive = preyTelemetry.get("timeAlive", 0.0)
+    groupingScore = preyTelemetry.get("groupingScore", 0.0)
     meanCommMagnitude = preyTelemetry.get("meanCommMagnitude", 0.0)
-    commBonus = meanCommMagnitude * COMM_BONUS_WEIGHT
+    finalEnergy = preyTelemetry.get("finalEnergy", 0.0)
 
-    fitness = survivalReward + completionBonus + groupingBonus + escapeBonus + commBonus
+    # Survival: per-second reward (automatically higher if survived full 30s)
+    survivalReward = timeAlive * PREY_SURVIVAL_BONUS_WEIGHT
 
-    return max(0.0, fitness)
+    groupingBonus = groupingScore * GROUPING_BONUS_WEIGHT
+    commBonus = meanCommMagnitude * PREY_COMM_BONUS_WEIGHT
+
+    # Energy: reward for ending with high energy
+    energyBonus = (finalEnergy / 100.0) * PREY_ENERGY_BONUS_WEIGHT
+
+    # Starvation: penalty if very low energy
+    starvationPenalty = 0.0
+    if finalEnergy < 5.0:  # Consider < 5 energy as "starved"
+        starvationPenalty = PREY_STARVATION_PENALTY
+
+    totalFitness = (
+            survivalReward +
+            groupingBonus +
+            commBonus +
+            energyBonus +
+            starvationPenalty
+    )
+
+    totalFitness = max(0.0, totalFitness)
+
+    return {
+        "timeAlive": timeAlive,
+        "survivalReward": survivalReward,
+        "groupingBonus": groupingBonus,
+        "commBonus": commBonus,
+        "energyBonus": energyBonus,
+        "starvationPenalty": starvationPenalty,
+        "totalFitness": totalFitness,
+    }
+
+def calculatePreyFitness(preyTelemetry) -> float:
+    return calculatePreyFitnessBreakdown(preyTelemetry)["totalFitness"]
+

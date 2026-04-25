@@ -3,14 +3,14 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass, field
 
-OBSERVATION_SIZE = 19
+OBSERVATION_SIZE = 23
 COMM_IN_SIZE     = 2
 INPUT_SIZE       = OBSERVATION_SIZE + COMM_IN_SIZE
 
 HIDDEN_STATES = 64
 SHARED_SIZE   = 32
 
-MOVE_OUT = 2
+MOVE_OUT = 3
 COMM_OUT = 2
 
 @dataclass

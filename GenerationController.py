@@ -9,6 +9,7 @@ import FitnessFunctions
 import NeuralNetwork
 import Simulator
 
+import tqdm
 
 RETRIAL_AMOUNT      = 2
 WORKER_COUNT        = 18
@@ -32,16 +33,19 @@ def evaluate(args) -> tuple:
 
     predatorTelemetrySums = {
         genotypeID : {
-            "catches" : 0.0,
-            "teamHuntScore" : 0.0,
-            "meanNearestPreyDistance" : 0.0
+            "catches"           : 0.0,
+            "teamHuntScore"     : 0.0,
+            "meanCommMagnitude" : 0.0,
+            "timeAlive"         : 0.0,
+            "finalEnergy"       : 0.0,
         } for genotypeID, _ in predators
     }
     preyTelemetrySums = {
         genotypeID : {
-            "timeAlive" : 0.0,
-            "alive" : 0.0,
-            "groupingScore" : 0.0
+            "timeAlive"         : 0.0,
+            "groupingScore"     : 0.0,
+            "meanCommMagnitude" : 0.0,
+            "finalEnergy"       : 0.0,
         } for genotypeID, _ in prey
     }
 
@@ -62,16 +66,20 @@ def evaluate(args) -> tuple:
                 )
 
                 for i, (genotypeID, _) in enumerate(predators):
-                    predTelemetry = telemetry["predators"][i]
-                    predatorTelemetrySums[genotypeID]["catches"] += predTelemetry["catches"]
+                    predTelemetry                                      = telemetry["predators"][i]
+                    predatorTelemetrySums[genotypeID]["catches"]       += predTelemetry["catches"]
                     predatorTelemetrySums[genotypeID]["teamHuntScore"] += predTelemetry["teamHuntScore"]
-                    predatorTelemetrySums[genotypeID]["meanNearestPreyDistance"] += predTelemetry["meanNearestPreyDistance"]
+                    predatorTelemetrySums[genotypeID]["meanCommMagnitude"] += predTelemetry["meanCommMagnitude"]
+                    predatorTelemetrySums[genotypeID]["timeAlive"]         += predTelemetry["timeAlive"]
+                    predatorTelemetrySums[genotypeID]["finalEnergy"]       += predTelemetry["finalEnergy"]
+
 
                 for i, (genotypeID, _) in enumerate(prey):
                     preyTelemetry = telemetry["prey"][i]
                     preyTelemetrySums[genotypeID]["timeAlive"] += preyTelemetry["timeAlive"]
-                    preyTelemetrySums[genotypeID]["alive"] += float(preyTelemetry["alive"])
-                    preyTelemetrySums[genotypeID]["groupingScore"] += preyTelemetry["groupingScore"]#
+                    preyTelemetrySums[genotypeID]["groupingScore"] += preyTelemetry["groupingScore"]
+                    preyTelemetrySums[genotypeID]["meanCommMagnitude"] += preyTelemetry["meanCommMagnitude"]
+                    preyTelemetrySums[genotypeID]["finalEnergy"] += preyTelemetry["finalEnergy"]
 
                 if enableMessageLogging and capturedMessageLog is None:
                     capturedMessageLog = telemetry.get("messageLog", None)
@@ -383,23 +391,35 @@ class GenerationController:
                         enableSimulationLog,
                     )
                 )
+        totalTasks = len(tasks)
         with ProcessPoolExecutor(max_workers = max(WORKER_COUNT, len(tasks))) as executor:
-            results = list(executor.map(evaluate, tasks))
+            results = list(
+                tqdm.tqdm(
+                    executor.map(evaluate, tasks),
+                    total = totalTasks,
+                    desc = f"Simulating {SIMULATION_REPEAT_COUNT * len(simBatches)} batches",
+                    unit = "trial",
+                    ncols = 100
+                )
+            )
 
         print("    - Simulations finished\n    - Processing telemetry data")
         idLinkedPredatorTelemetry = {
             predator["genotypeID"] : {
                 "catches" : 0.0,
                 "teamHuntScore" : 0.0,
-                "meanNearestPreyDistance" : 0.0
+                "meanCommMagnitude" : 0.0,
+                "timeAlive" : 0.0,
+                "finalEnergy" : 0.0,
             }
             for predator in self.currentPredatorGeneration
         }
         idLinkedPreyTelemetry = {
             prey["genotypeID"] : {
                 "timeAlive" : 0.0,
-                "alive" : 0.0,
-                "groupingScore" : 0.0
+                "groupingScore" : 0.0,
+                "meanCommMagnitude" : 0.0,
+                "finalEnergy" : 0.0,
             }
             for prey in self.currentPreyGeneration
         }
@@ -415,14 +435,17 @@ class GenerationController:
             for gID, t in predTelemetries.items():
                 idLinkedPredatorTelemetry[gID]["catches"] += t["catches"]
                 idLinkedPredatorTelemetry[gID]["teamHuntScore"] += t["teamHuntScore"]
-                idLinkedPredatorTelemetry[gID]["meanNearestPreyDistance"] += t["meanNearestPreyDistance"]
+                idLinkedPredatorTelemetry[gID]["meanCommMagnitude"] += t.get("meanCommMagnitude", 0.0)  # NEW
+                idLinkedPredatorTelemetry[gID]["timeAlive"] += t.get("timeAlive", 0.0)  # NEW
+                idLinkedPredatorTelemetry[gID]["finalEnergy"] += t.get("finalEnergy", 0.0)  # NEW
 
                 predEvalCounts[gID] += 1
 
             for gID, t in preyTelemetries.items():
                 idLinkedPreyTelemetry[gID]["timeAlive"] += t["timeAlive"]
-                idLinkedPreyTelemetry[gID]["alive"] += t["alive"]
                 idLinkedPreyTelemetry[gID]["groupingScore"] += t["groupingScore"]
+                idLinkedPreyTelemetry[gID]["meanCommMagnitude"] += t.get("meanCommMagnitude", 0.0)  # NEW
+                idLinkedPreyTelemetry[gID]["finalEnergy"] += t.get("finalEnergy", 0.0)  # NEW
 
                 preyEvalCounts[gID] += 1
 
@@ -447,34 +470,62 @@ class GenerationController:
 
         for predator in self.currentPredatorGeneration:
             gID = predator["genotypeID"]
-            fitnessBreakdown = FitnessFunctions.calculatePredatorFitnessBreakdown(idLinkedPredatorTelemetry[gID])
+
+            predatorTelemetry = {
+                "catches": idLinkedPredatorTelemetry[gID]["catches"],
+                "teamHuntScore": idLinkedPredatorTelemetry[gID]["teamHuntScore"],
+                "meanCommMagnitude": idLinkedPredatorTelemetry[gID]["meanCommMagnitude"],
+                "timeAlive": idLinkedPredatorTelemetry[gID]["timeAlive"],
+                "finalEnergy": idLinkedPredatorTelemetry[gID]["finalEnergy"],
+            }
+
+            fitnessBreakdown = FitnessFunctions.calculatePredatorFitnessBreakdown(predatorTelemetry)
             predator["fitness"] = fitnessBreakdown["totalFitness"]
 
         for prey in self.currentPreyGeneration:
             gID = prey["genotypeID"]
+
             preyTelemetry = {
-                "timeAlive" : idLinkedPreyTelemetry[gID]["timeAlive"],
-                "alive" : idLinkedPreyTelemetry[gID]["alive"] >= 0.5,
-                "groupingScore" : idLinkedPreyTelemetry[gID]["groupingScore"],
+                "timeAlive": idLinkedPreyTelemetry[gID]["timeAlive"],
+                "groupingScore": idLinkedPreyTelemetry[gID]["groupingScore"],
+                "meanCommMagnitude": idLinkedPreyTelemetry[gID]["meanCommMagnitude"],
+                "finalEnergy": idLinkedPreyTelemetry[gID]["finalEnergy"],
             }
+
             prey["fitness"] = FitnessFunctions.calculatePreyFitness(preyTelemetry)
 
         aggregatedPredatorDiagnostics = {
-            "catches" : 0.0,
-            "catchReward" : 0.0,
-            "teamHuntBonus" : 0.0,
-            "preyPressureBonus" : 0.0,
-            "totalFitness" : 0.0,
+            "catches": 0.0,
+            "catchReward": 0.0,
+            "teamHuntBonus": 0.0,
+            "commBonus": 0.0,
+            "survivalBonus": 0.0,
+            "energyBonus": 0.0,
+            "starvationPenalty": 0.0,
+            "totalFitness": 0.0,
         }
+
         if self.currentPredatorGeneration:
             for predator in self.currentPredatorGeneration:
                 gID = predator["genotypeID"]
-                breakdown = FitnessFunctions.calculatePredatorFitnessBreakdown(idLinkedPredatorTelemetry[gID])
+
+                predatorTelemetry = {
+                    "catches": idLinkedPredatorTelemetry[gID]["catches"],
+                    "teamHuntScore": idLinkedPredatorTelemetry[gID]["teamHuntScore"],
+                    "meanCommMagnitude": idLinkedPredatorTelemetry[gID]["meanCommMagnitude"],
+                    "timeAlive": idLinkedPredatorTelemetry[gID]["timeAlive"],
+                    "finalEnergy": idLinkedPredatorTelemetry[gID]["finalEnergy"],
+                }
+
+                breakdown = FitnessFunctions.calculatePredatorFitnessBreakdown(predatorTelemetry)
 
                 aggregatedPredatorDiagnostics["catches"] += breakdown["catches"]
                 aggregatedPredatorDiagnostics["catchReward"] += breakdown["catchReward"]
                 aggregatedPredatorDiagnostics["teamHuntBonus"] += breakdown["teamHuntBonus"]
-                aggregatedPredatorDiagnostics["preyPressureBonus"] += breakdown["preyPressureBonus"]
+                aggregatedPredatorDiagnostics["commBonus"] += breakdown["commBonus"]  # NEW
+                aggregatedPredatorDiagnostics["survivalBonus"] += breakdown["survivalBonus"]  # NEW
+                aggregatedPredatorDiagnostics["energyBonus"] += breakdown["energyBonus"]  # NEW
+                aggregatedPredatorDiagnostics["starvationPenalty"] += breakdown["starvationPenalty"]  # NEW
                 aggregatedPredatorDiagnostics["totalFitness"] += breakdown["totalFitness"]
 
             predatorCount = len(self.currentPredatorGeneration)
@@ -491,13 +542,33 @@ class GenerationController:
         predData = calculateDescriptiveStatisticsFromGeneration(self.currentPredatorGeneration)
         preyData = calculateDescriptiveStatisticsFromGeneration(self.currentPreyGeneration)
 
-        print(
-            f"Predator Diagnostics | "
-            f"avg catches {predatorDiagnostics['catches']:.2f} |"
-            f"catchReward {predatorDiagnostics['catchReward']:.2f} |"
-            f"teamHuntBonus {predatorDiagnostics['teamHuntBonus']:.2f} |"
-            f"preyPressureBonus {predatorDiagnostics['preyPressureBonus']:.2f} |"
-        )
+        print("\n" + "─" * 80)
+        print("PREDATOR DIAGNOSTICS")
+        print("─" * 80)
+        print(f"  Avg Catches:          {predatorDiagnostics['catches']:>8.2f}")
+        print(f"  Catch Reward:         {predatorDiagnostics['catchReward']:>8.2f}")
+        print(f"  Team Hunt Bonus:      {predatorDiagnostics['teamHuntBonus']:>8.2f}")
+        print(f"  Communication Bonus:  {predatorDiagnostics['commBonus']:>8.2f}")
+        print(f"  Survival Bonus:       {predatorDiagnostics['survivalBonus']:>8.2f}")
+        print(f"  Energy Bonus:         {predatorDiagnostics['energyBonus']:>8.2f}")
+        print(f"  Starvation Penalty:   {predatorDiagnostics['starvationPenalty']:>8.2f}")
+        print(f"  {'─' * 40}")
+        print(f"  Total Fitness:        {predatorDiagnostics['totalFitness']:>8.2f}")
+
+        print("\n" + "─" * 80)
+        print("PREDATOR POPULATION STATISTICS")
+        print("─" * 80)
+        print(f"  Average Fitness:      {predData[0]:>8.2f}")
+        print(f"  Best Fitness:         {predData[1]:>8.2f}")
+        print(f"  Worst Fitness:        {predData[2]:>8.2f}")
+
+        print("\n" + "─" * 80)
+        print("PREY POPULATION STATISTICS")
+        print("─" * 80)
+        print(f"  Average Fitness:      {preyData[0]:>8.2f}")
+        print(f"  Best Fitness:         {preyData[1]:>8.2f}")
+        print(f"  Worst Fitness:        {preyData[2]:>8.2f}")
+        print()
 
         if self.generationNo % self.checkpointControl == 0:
             self._saveGeneration()
@@ -575,7 +646,9 @@ class GenerationController:
                     "genotypeID",
                     "catches",
                     "teamHuntScore",
-                    "meanNearestPreyDistance"
+                    "meanCommMagnitude",
+                    "timeAlive",
+                    "finalEnergy"
                 ]
             )
             writer.writeheader()
@@ -586,7 +659,9 @@ class GenerationController:
                     "genotypeID": genotypeID,
                     "catches": telemetry["catches"],
                     "teamHuntScore": telemetry["teamHuntScore"],
-                    "meanNearestPreyDistance": telemetry["meanNearestPreyDistance"]
+                    "meanCommMagnitude" : telemetry["meanCommMagnitude"],
+                    "timeAlive" : telemetry["timeAlive"],
+                    "finalEnergy" : telemetry["finalEnergy"]
                 })
 
     def _savePreyTelemetry(self, idLinkedTelemetries, generationNo):
@@ -603,8 +678,9 @@ class GenerationController:
                     "generationNo",
                     "genotypeID",
                     "timeAlive",
-                    "alive",
-                    "groupingScore"
+                    "groupingScore",
+                    "meanCommMagnitude",
+                    "finalEnergy"
                 ]
             )
             writer.writeheader()
@@ -614,8 +690,9 @@ class GenerationController:
                     "generationNo": generationNo,
                     "genotypeID": genotypeID,
                     "timeAlive": telemetry["timeAlive"],
-                    "alive": telemetry["alive"],
-                    "groupingScore": telemetry["groupingScore"]
+                    "groupingScore": telemetry["groupingScore"],
+                    "meanCommMagnitude" : telemetry["meanCommMagnitude"],
+                    "finalEnergy" : telemetry["finalEnergy"]
                 })
 
     def ancestralOpponentContests(self, duration:float = 30.0, sampleRate:int = 10) -> dict:
@@ -643,13 +720,7 @@ class GenerationController:
             _, _, _, preyTelemetry = self._runSimulator(duration = duration)
             preyFitnesses = []
             for gID, telemetry in preyTelemetry.items():
-                preyFitnesses.append(FitnessFunctions.calculatePreyFitness(
-                    {
-                        "timeAlive" : telemetry["timeAlive"],
-                        "alive" : telemetry["alive"] >= 0.5,
-                        "groupingScore" : telemetry["groupingScore"]
-                    }
-                ))
+                preyFitnesses.append(FitnessFunctions.calculatePreyFitness(telemetry))
             preyPerformance.append(
                 sum(preyFitnesses) / len(preyFitnesses)
             )
@@ -663,9 +734,6 @@ class GenerationController:
             "predPerformance"     : predPerformance,
             "preyPerformance"     : preyPerformance
         }
-
-
-
 
     def _scanGenerations(self) -> list:
         generations = []
