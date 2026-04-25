@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SimulationConfig:
-    arenaSize            : float = 30.0
+    arenaSize            : float = 60.0
     catchDistance        : float = 0.4
     predatorRadius       : float = 0.4
     preyRadius           : float = 0.3
@@ -17,7 +17,7 @@ class SimulationConfig:
 
 @dataclass
 class PreyConfig:
-    arenaSize          : float = 30.0
+    arenaSize          : float = 60.0
     baseSpeed          : float = 4.2
     catchDistance      : float = 0.4
     predatorRadius     : float = 0.2
@@ -37,7 +37,7 @@ class PreyConfig:
 
 @dataclass
 class PredatorConfig:
-    arenaSize          : float = 30.0
+    arenaSize          : float = 60.0
     baseSpeed          : float = 3.0
     catchDistance      : float = 0.4
     predatorRadius     : float = 0.2

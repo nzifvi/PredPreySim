@@ -369,7 +369,6 @@ class GenerationController:
             print(e)
 
     def _runSimulator(self, duration) -> tuple:
-        print("    - Running simulations")
         predators = [
             (p["genotypeID"], p["genotypeNN"]) for p in self.currentPredatorGeneration
         ]
@@ -397,7 +396,7 @@ class GenerationController:
                 tqdm.tqdm(
                     executor.map(evaluate, tasks),
                     total = totalTasks,
-                    desc = f"Simulating {SIMULATION_REPEAT_COUNT * len(simBatches)} batches",
+                    desc = f"    Simulating {SIMULATION_REPEAT_COUNT * len(simBatches)} batches",
                     unit = "trial",
                     ncols = 100
                 )

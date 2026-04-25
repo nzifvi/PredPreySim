@@ -152,7 +152,7 @@ class Agent:
             enemies = predators
 
         normalisedVelocity = torch.clamp(
-            self.velocity / (self.agentConfig.maxSpeed + 1e-6),
+            self.velocity, # NORMALISE LATER
             min = - 1.0,
             max = 1.0
         )
@@ -189,7 +189,7 @@ class Agent:
         )
 
         if foodSources is not None:
-            nearestFood = self._findNearestEntity(foodSources, visionRadius)
+            nearestFood = self._findNearestFood(foodSources, visionRadius)
         else:
             nearestFood = torch.zeros(
                 3,

@@ -19,6 +19,7 @@ class SuppressOutput:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         sys.stdout.close()
+        sys.stderr.close()
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
 
@@ -36,11 +37,12 @@ class Simulator:
 
         self.timeStep = 1.0 / 120.0
 
-        if self.haveGUI:
-            self.simClient = pybullet.connect(pybullet.GUI)
-            self.birdsEyeView()
-        else:
-            self.simClient = pybullet.connect(pybullet.DIRECT)
+        with SuppressOutput():
+            if self.haveGUI:
+                self.simClient = pybullet.connect(pybullet.GUI)
+                self.birdsEyeView()
+            else:
+                self.simClient = pybullet.connect(pybullet.DIRECT)
 
         pybullet.setAdditionalSearchPath(pybullet_data.getDataPath())
         pybullet.setGravity(0, 0, -9.81)
@@ -133,7 +135,7 @@ class Simulator:
 
             foodVisual = pybullet.createVisualShape(
                 shapeType = pybullet.GEOM_SPHERE,
-                radius = 0.8,
+                radius = 0.1,
                 rgbaColor = [0.3, 0.9, 0.0, 1.0]
             )
             foodBody = pybullet.createMultiBody(
@@ -627,7 +629,7 @@ class Simulator:
             if not prey.isAlive:
                 continue
 
-            preyPos = [prey.position[0].item(), prey.position[1].item]
+            preyPos = [prey.position[0].item(), prey.position[1].item()]
 
             for food in self.foodSources:
                 if not food["available"]:

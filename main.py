@@ -63,15 +63,6 @@ def train(duration):
         preyBestHistory.append(preyBestFitness)
         preyWorstHistory.append(preyWorstFitness)
 
-        print(
-            f"Generation {startGen + gen} | "
-            f"pred avg {predAvgFitness:.2f} | pred best {predBestFitness:.2f} | pred worst {predWorstFitness:.2f}"
-        )
-        print(
-            f"Generation {startGen + gen} | "
-            f"prey avg {preyAvgFitness:.2f} | prey best {preyBestFitness:.2f} | prey worst {preyWorstFitness:.2f}"
-        )
-
         current_x = list(range(startGen, startGen + len(predAvgHistory)))
 
         line_pred.set_data(current_x, predAvgHistory)
@@ -666,6 +657,9 @@ def analyze_latest_generation(gen_no=311):
                 print("  ✓ HIGH GROUPING - Strong coordination")
 
 if __name__ == "__main__":
-    train(
-        duration = 35.0
+    observe(
+        generationNo = 0,
+        predators = [0, 1, 2, 3],
+        prey = list(range(16)),
+        duration = 45.0
     )
