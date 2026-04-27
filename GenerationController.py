@@ -132,12 +132,12 @@ class GenerationController:
 
         self.predEvolver = Evolver.Evolver(
             tournamentSize = 2,
-            mutationRate   = 0.30,
+            mutationRate   = 0.12,
             sigma          = 0.1
         )
         self.preyEvolver = Evolver.Evolver(
             tournamentSize = 2,
-            mutationRate   = 0.30,
+            mutationRate   = 0.12,
             sigma          = 0.1
         )
 

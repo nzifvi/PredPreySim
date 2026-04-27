@@ -136,12 +136,12 @@ class Simulator:
             foodVisual = pybullet.createVisualShape(
                 shapeType = pybullet.GEOM_SPHERE,
                 radius = 0.1,
-                rgbaColor = [0.3, 0.9, 0.0, 1.0]
+                rgbaColor = [1.0, 1.0, 1.0, 1.0]
             )
             foodBody = pybullet.createMultiBody(
                 baseMass = 0,
                 baseVisualShapeIndex = foodVisual,
-                basePosition = [xPos, yPos, 0.8]
+                basePosition = [xPos, yPos, 0.1]
             )
             self.foodSources.append(
                 {
@@ -645,7 +645,7 @@ class Simulator:
                     preyPos[1] - foodPosition[1]
                 ])
 
-                if dist < 1.5:
+                if dist < 0.8:
                     prey.eat(self.arenaFoodEnergyValue)
                     food["available"] = False
                     food["respawnTime"] = currentTime + 10
@@ -653,7 +653,7 @@ class Simulator:
                     pybullet.changeVisualShape(
                         food["body"],
                         -1,
-                        rgbaColor = [0.3, 0.9, 0.0, 0.2]
+                        rgbaColor = [0.0, 0.0, 0.0, 0.2]
                     )
                 break
 
@@ -664,5 +664,5 @@ class Simulator:
                 pybullet.changeVisualShape(
                     food["body"],
                     -1,
-                    rgbaColor = [0.3, 0.9, 0.0, 1.0]
+                    rgbaColor = [1.0, 1.0, 1.0, 1.0]
                 )
