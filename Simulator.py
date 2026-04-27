@@ -303,6 +303,7 @@ class Simulator:
                     2,
                     dtype = torch.float32
                 )
+                continue
 
             predatorObservation = predator.getObservation(
                 predators    = self.predators,
@@ -439,6 +440,9 @@ class Simulator:
                     nearbyPredatorIndices = []
 
                     for k, otherPredator in enumerate(self.predators):
+                        if not otherPredator.isAlive:
+                            continue
+
                         supportDist = self.predToPreyDistances[k, j].item()
                         if supportDist <= catchSupportRadius:
                             nearbyPredatorIndices.append(k)
@@ -646,11 +650,11 @@ class Simulator:
                     food["available"] = False
                     food["respawnTime"] = currentTime + 10
 
-                pybullet.changeVisualShape(
-                    food["body"],
-                    -1,
-                    rgbaColor = [0.3, 0.9, 0.0, 0.2]
-                )
+                    pybullet.changeVisualShape(
+                        food["body"],
+                        -1,
+                        rgbaColor = [0.3, 0.9, 0.0, 0.2]
+                    )
                 break
 
     def _respawnFood(self, currentTime) -> None:

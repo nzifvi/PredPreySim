@@ -661,5 +661,5 @@ if __name__ == "__main__":
         generationNo = 0,
         predators = [0, 1, 2, 3],
         prey = list(range(16)),
-        duration = 45.0
+        duration = 35.0
     )

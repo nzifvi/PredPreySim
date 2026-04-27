@@ -24,9 +24,9 @@ class PreyConfig:
     preyRadius         : float = 0.1
     boundaryMargin     : float = 1.0
     boundaryForce      : float = 50.0
-    maxEnergy          : float = 150.0
-    energyDrainRate    : float = 0.3
-    sprintDrainRate    : float = 0.9
+    maxEnergy          : float = 100
+    energyDrainRate    : float = 2.0
+    sprintDrainRate    : float = 3.0
     sprintMultiplier   : float = 1.3
     maxStomachCapacity : float = 50.0
 
@@ -44,9 +44,9 @@ class PredatorConfig:
     preyRadius         : float = 0.1
     boundaryMargin     : float = 1.0
     boundaryForce      : float = 50.0
-    maxEnergy          : float  = 200.0
-    energyDrainRate    : float = 0.5
-    sprintDrainRate    : float = 1.0
+    maxEnergy          : float  = 100.0
+    energyDrainRate    : float = 2.0
+    sprintDrainRate    : float = 3.0
     sprintMultiplier   : float = 1.5
     maxStomachCapacity : float = 90.0
 
