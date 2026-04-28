@@ -131,8 +131,8 @@ class GenerationController:
         self.totalParams = sum(layer["totalWeights"] + layer["biases"] for layer in self.nnBlueprint)
 
         self.predEvolver = Evolver.Evolver(
-            tournamentSize = 2,
-            mutationRate   = 0.12,
+            tournamentSize = 3,
+            mutationRate   = 0.05,
             sigma          = 0.1
         )
         self.preyEvolver = Evolver.Evolver(
