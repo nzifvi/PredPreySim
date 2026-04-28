@@ -10,8 +10,8 @@ class SimulationConfig:
     boundaryForce        : float = 50.0
     visionRadius         : float = 4.0
     communicationRadius  : float = 7.5
-    maxFoodAmount        : float = 64
-    minFoodAmount        : float = 16
+    minClusterFood       : int = 4
+    maxClusterFood       : int = 8
     preyEnergyValue      : float = 40.0
     arenaFoodEnergyValue : float = 30.0
 

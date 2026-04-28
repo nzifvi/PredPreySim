@@ -60,8 +60,8 @@ class Simulator:
         self.preyToPreyDistances = None
 
         self.foodSources          = []
-        self.minFoodAmount        = simConfig.minFoodAmount
-        self.maxFoodAmount        = simConfig.maxFoodAmount
+        self.minClusterFood       = simConfig.minClusterFood
+        self.maxClusterFood       = simConfig.maxClusterFood
         self.preyEnergyValue      = simConfig.preyEnergyValue
         self.arenaFoodEnergyValue = simConfig.arenaFoodEnergyValue
 
@@ -119,38 +119,43 @@ class Simulator:
             )
             self.prey.append(prey)
 
-        foodAmount = numpy.random.randint(
-            self.minFoodAmount,
-            self.maxFoodAmount
-        )
-        for _ in range(foodAmount):
-            xPos = numpy.random.uniform(
-                -self.arenaSize / 3,
-                self.arenaSize  / 3
-            )
-            yPos = numpy.random.uniform(
-                -self.arenaSize / 3,
-                self.arenaSize  / 3
-            )
+        clusterAmount = numpy.random.randint(3, 6)
+        for i in range(0, clusterAmount):
+            clusterXPos = numpy.random.uniform(-self.arenaSize / 3, self.arenaSize / 3)
+            clusterYPos = numpy.random.uniform(-self.arenaSize / 3, self.arenaSize / 3)
 
-            foodVisual = pybullet.createVisualShape(
-                shapeType = pybullet.GEOM_SPHERE,
-                radius = 0.1,
-                rgbaColor = [1.0, 1.0, 1.0, 1.0]
-            )
-            foodBody = pybullet.createMultiBody(
-                baseMass = 0,
-                baseVisualShapeIndex = foodVisual,
-                basePosition = [xPos, yPos, 0.1]
-            )
-            self.foodSources.append(
-                {
-                    "body"        : foodBody,
-                    "position"    : [xPos, yPos],
-                    "available"   : True,
-                    "respawnTime" : 0.0
-                }
-            )
+            clusterRadius = numpy.random.uniform(1.5, 3.0)  # Cluster spread
+            foodInCluster = numpy.random.randint(5, 10)
+
+            for _ in range(foodInCluster):
+                angle = numpy.random.uniform(0, 2 * numpy.pi)
+                distance = numpy.abs(numpy.random.normal(0, clusterRadius / 2))
+
+                xPos = clusterXPos + distance * numpy.cos(angle)
+                yPos = clusterYPos + distance * numpy.sin(angle)
+
+                xPos = numpy.clip(xPos, -self.arenaSize/3, self.arenaSize/3)
+                yPos = numpy.clip(yPos, -self.arenaSize/3, self.arenaSize/3)
+
+                foodVisual = pybullet.createVisualShape(
+                    shapeType = pybullet.GEOM_SPHERE,
+                    radius = 0.1,
+                    rgbaColor = [0.0, 0.0, 0.0, 1.0]
+                )
+                foodBody = pybullet.createMultiBody(
+                    baseMass = 0,
+                    baseVisualShapeIndex = foodVisual,
+                    basePosition = [xPos, yPos, 0.0],
+                )
+                self.foodSources.append({
+                    "body" : foodBody,
+                    "position" :[xPos, yPos],
+                    "available" : True,
+                    "respawnTime" : 0.0,
+                    "clusterId" : i
+                })
+
+
 
         for _ in range(10):
             pybullet.stepSimulation()
