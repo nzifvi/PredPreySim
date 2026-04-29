@@ -31,7 +31,6 @@ class Simulator:
         self.haveGUI = gui
 
         self.arenaSize           = simConfig.arenaSize
-        self.catchDistance       = simConfig.catchDistance
         self.visionRadius        = simConfig.visionRadius
         self.communicationRadius = simConfig.communicationRadius
 
@@ -64,6 +63,9 @@ class Simulator:
         self.maxClusterFood       = simConfig.maxClusterFood
         self.preyEnergyValue      = simConfig.preyEnergyValue
         self.arenaFoodEnergyValue = simConfig.arenaFoodEnergyValue
+
+        self.catchDistance = simConfig.catchDistance
+        self.eatDistance   = simConfig.eatDistance
 
     def _initSimulator(self):
         self.plane = pybullet.loadURDF("plane.urdf")
@@ -650,7 +652,7 @@ class Simulator:
                     preyPos[1] - foodPosition[1]
                 ])
 
-                if dist < 0.8:
+                if dist < self.eatDistance:
                     prey.eat(self.arenaFoodEnergyValue)
                     food["available"] = False
                     food["respawnTime"] = currentTime + 10
