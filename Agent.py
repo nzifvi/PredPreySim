@@ -89,10 +89,10 @@ class Agent:
             self.isSprinting = False
 
         xVelocity = torch.clamp(
-            torch.tensor(xVelocity), -1.0, 1.0
+            torch.tensor(xVelocity), -5.0, 5.0
         ).item()
         yVelocity = torch.clamp(
-            torch.tensor(yVelocity), -1.0, 1.0
+            torch.tensor(yVelocity), -5.0, 5.0
         ).item()
 
         speedMultiplier = self.sprintMultiplier if self.isSprinting else 1.0

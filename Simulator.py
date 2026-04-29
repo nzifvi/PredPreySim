@@ -202,21 +202,18 @@ class Simulator:
             self._applyPredatorActions(predatorActions)
             self._applyPreyActions(preyActions)
 
+            self._processCatches(preyCaught, predatorTeamHuntScore)
             self._updatePreyEating(currentTime)
+
+            self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
+            self._updatePreyGrouping(preyGrouping)
             self._respawnFood(currentTime)
 
             pybullet.stepSimulation()
 
-            self._updateAllStates(self.timeStep)
-            self._computeDistanceMatrices()
-
-            self._processCatches(preyCaught, predatorTeamHuntScore)
-            self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
-            self._updatePreyGrouping(preyGrouping)
-
             if self.haveGUI and step % 5 == 0:
                 self.visualiseCommunication()
-                time.sleep(self.timeStep * 2)
+                #time.sleep(0.00125)
 
             currentTime += self.timeStep
             step += 1

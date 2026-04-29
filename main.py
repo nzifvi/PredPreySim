@@ -607,13 +607,13 @@ def analyze_latest_generation(gen_no=311):
 
             print("\nPREDATORS:")
             print(f"  Population Size: {len(data)}")
-            print(f"  Mean Catches: {statistics.mean(catches):.2f}")
-            print(f"  Best Catches: {max(catches):.2f}")
-            print(f"  Worst Catches: {min(catches):.2f}")
-            print(f"  Std Dev: {statistics.stdev(catches):.2f}")
+            print(f"  Mean Catches:    {statistics.mean(catches):.2f}")
+            print(f"  Best Catches:    {max(catches):.2f}")
+            print(f"  Worst Catches:   {min(catches):.2f}")
+            print(f"  Std Dev:         {statistics.stdev(catches):.2f}")
 
             print(f"\n  Mean Teamwork Score: {statistics.mean(teamwork):.2f}")
-            print(f"  Best Teamwork Score: {max(teamwork):.2f}")
+            print(f"  Best Teamwork Score:   {max(teamwork):.2f}")
 
             if max(teamwork) < 5.0:
                 print("  ⚠️  LOW TEAMWORK - Predators NOT coordinating effectively")
@@ -643,11 +643,11 @@ def analyze_latest_generation(gen_no=311):
 
             print("\nPREY:")
             print(f"  Population Size: {len(data)}")
-            print(f"  Survival Rate: {statistics.mean(alive) * 100:.1f}%")
+            print(f"  Survival Rate:   {statistics.mean(alive) * 100:.1f}%")
             print(f"  Mean Time Alive: {statistics.mean(time_alive):.2f}s")
 
             print(f"\n  Mean Grouping Score: {statistics.mean(grouping):.2f}")
-            print(f"  Best Grouping Score: {max(grouping):.2f}")
+            print(f"  Best Grouping Score:   {max(grouping):.2f}")
 
             if max(grouping) < 5.0:
                 print("  ⚠️  LOW GROUPING - Prey NOT coordinating")
@@ -657,12 +657,6 @@ def analyze_latest_generation(gen_no=311):
                 print("  ✓ HIGH GROUPING - Strong coordination")
 
 if __name__ == "__main__":
-    i = 0
-    while i + 3 < 32:
-        observe(
-            generationNo=25,
-            predators = [i, i + 1, i + 2, i + 3],
-            prey=list(range(32)),
-            duration = 45.0
-        )
-        i = i + 4
+    train(
+        duration = 45.0
+    )

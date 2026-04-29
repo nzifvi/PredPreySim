@@ -11,7 +11,7 @@ import Simulator
 
 import tqdm
 
-RETRIAL_AMOUNT      = 2
+RETRIAL_AMOUNT      = 1
 WORKER_COUNT        = 18
 
 SIMULATION_BATCH_SIZE   = 4
@@ -137,7 +137,7 @@ class GenerationController:
         )
         self.preyEvolver = Evolver.Evolver(
             tournamentSize = 2,
-            mutationRate   = 0.12,
+            mutationRate   = 0.22,
             sigma          = 0.1
         )
 
