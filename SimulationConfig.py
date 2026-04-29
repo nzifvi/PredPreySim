@@ -5,11 +5,11 @@ class SimulationConfig:
     arenaSize            : float = 85.0
     catchDistance        : float = 0.3
     eatDistance          : float = 0.3
-    predatorRadius       : float = 0.1
-    preyRadius           : float = 0.1
+    predatorRadius       : float = 0.3
+    preyRadius           : float = 0.3
     boundaryMargin       : float  = 1.0
     boundaryForce        : float = 50.0
-    visionRadius         : float = 7.0
+    visionRadius         : float = 12.5
     communicationRadius  : float = 15.0
     foodClusterNo        : int = 6
     minClusterFood       : int = 8
@@ -19,11 +19,11 @@ class SimulationConfig:
 
 @dataclass
 class PreyConfig:
-    arenaSize          : float = 60.0
+    arenaSize          : float = 85.0
     baseSpeed          : float = 4.2
-    eatDistance        : float = 0.4
-    predatorRadius     : float = 0.2
-    preyRadius         : float = 0.1
+    eatDistance        : float = 0.3
+    predatorRadius     : float = 0.3
+    preyRadius         : float = 0.3
     boundaryMargin     : float = 1.0
     boundaryForce      : float = 50.0
     maxEnergy          : float = 100
@@ -39,11 +39,11 @@ class PreyConfig:
 
 @dataclass
 class PredatorConfig:
-    arenaSize          : float = 60.0
+    arenaSize          : float = 85.0
     baseSpeed          : float = 3.0
-    catchDistance      : float = 0.4
-    predatorRadius     : float = 0.2
-    preyRadius         : float = 0.1
+    catchDistance      : float = 0.3
+    predatorRadius     : float = 0.3
+    preyRadius         : float = 0.3
     boundaryMargin     : float = 1.0
     boundaryForce      : float = 50.0
     maxEnergy          : float = 100.0

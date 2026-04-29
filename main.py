@@ -657,6 +657,12 @@ def analyze_latest_generation(gen_no=311):
                 print("  ✓ HIGH GROUPING - Strong coordination")
 
 if __name__ == "__main__":
-    train(
-        duration = 45.0
-    )
+    i = 0
+    while i + 3 < 32:
+        observe(
+            generationNo=25,
+            predators = [i, i + 1, i + 2, i + 3],
+            prey=list(range(32)),
+            duration = 45.0
+        )
+        i = i + 4

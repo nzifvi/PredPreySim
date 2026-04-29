@@ -141,8 +141,8 @@ class Simulator:
 
                 foodVisual = pybullet.createVisualShape(
                     shapeType = pybullet.GEOM_SPHERE,
-                    radius = 0.1,
-                    rgbaColor = [0.0, 0.0, 0.0, 1.0]
+                    radius = 0.15,
+                    rgbaColor = [1.0, 0.713, 0.756, 1.0]
                 )
                 foodBody = pybullet.createMultiBody(
                     baseMass = 0,
