@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SimulationConfig:
-    arenaSize            : float = 60.0
+    arenaSize            : float = 85.0
     catchDistance        : float = 0.3
     eatDistance          : float = 0.3
     predatorRadius       : float = 0.1
@@ -11,8 +11,9 @@ class SimulationConfig:
     boundaryForce        : float = 50.0
     visionRadius         : float = 7.0
     communicationRadius  : float = 15.0
-    minClusterFood       : int = 4
-    maxClusterFood       : int = 8
+    foodClusterNo        : int = 6
+    minClusterFood       : int = 8
+    maxClusterFood       : int = 10
     preyEnergyValue      : float = 40.0
     arenaFoodEnergyValue : float = 30.0
 

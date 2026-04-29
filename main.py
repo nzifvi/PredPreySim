@@ -19,8 +19,8 @@ def train(duration):
     runForNGenerations = 100
 
     generationController = GenerationController(
-        predPopSize=16,
-        preyPopSize=16,
+        predPopSize=32,
+        preyPopSize=32,
         checkpointControl=1
     )
 
