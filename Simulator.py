@@ -180,7 +180,7 @@ class Simulator:
         step                             = 0
 
         while currentTime < self.simDuration:
-            self._updateAllStates(self.timeStep)
+            self._updateAgentTime(self.timeStep)
             self._computeDistanceMatrices()
 
 
@@ -255,10 +255,6 @@ class Simulator:
             prey.hiddenState = nn.initHidden()
             prey.message = torch.zeros(1, 2, dtype=torch.float32)
             prey.receivedMessage = torch.zeros(1, 2, dtype=torch.float32)
-
-    def _updateAllStates(self, dt:float):
-        for agent in self.predators + self.prey:
-            agent.updateState(dt)
 
     def _averageAllyMessages(self, agents, currentAgent):
         messages = []
@@ -418,7 +414,6 @@ class Simulator:
                 continue
 
             predator.applyAction(action)
-            predator.stepTime(self.timeStep)
 
     def _applyPreyActions(self, preyActions) -> None:
         for prey, action in zip(self.prey, preyActions):
@@ -426,7 +421,6 @@ class Simulator:
                 continue
 
             prey.applyAction(action)
-            prey.stepTime(self.timeStep)
 
     def _processCatches(self, preyCaught, predatorTeamHuntScore = None) -> None:
         catchSupportRadius = 3.0
@@ -670,3 +664,7 @@ class Simulator:
                     -1,
                     rgbaColor = [1.0, 1.0, 1.0, 1.0]
                 )
+
+    def _updateAgentTime(self, dt) -> None:
+        for agent in self.predators + self.prey:
+            agent.stepTime(dt)
