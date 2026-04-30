@@ -747,6 +747,4 @@ def analyze_latest_generation(gen_no=None):
 
 
 if __name__ == "__main__":
-    train(
-        duration=40.0
-    )
+    analyze_latest_generation(gen_no=63)
