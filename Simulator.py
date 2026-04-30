@@ -657,7 +657,6 @@ class Simulator:
                         -1,
                         rgbaColor = [0.0, 0.0, 0.0, 0.2]
                     )
-                break
 
     def _respawnFood(self, currentTime) -> None:
         for food in self.foodSources:

@@ -7,8 +7,8 @@ class SimulationConfig:
     eatDistance          : float = 1.0
     boundaryMargin       : float  = 1.0
     boundaryForce        : float = 50.0
-    visionRadius         : float = 12.5
-    communicationRadius  : float = 15.0
+    visionRadius         : float = 20.0
+    communicationRadius  : float = 22.5
     foodClusterNo        : int = 5
     minClusterFood       : int = 10
     maxClusterFood       : int = 12
