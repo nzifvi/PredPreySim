@@ -747,9 +747,6 @@ def analyze_latest_generation(gen_no=None):
 
 
 if __name__ == "__main__":
-    observe(
-        generationNo = 85,
-        predators = [0, 1, 2, 3],
-        prey = list(range(32)),
+    train(
         duration = 45.0
     )

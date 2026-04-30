@@ -59,22 +59,24 @@ class Agent:
         return agent
 
     def updateState(self, dt) -> None:
-        currentPosition, _ = pybullet.getBasePositionAndOrientation(self.agent)
-        currentVelocity, _ = pybullet.getBaseVelocity(self.agent)
-
-        self.position = torch.tensor(
-            currentPosition[:2],
-            dtype=torch.float32,
-            device=self.device
-        )
-        self.velocity = torch.tensor(
-            currentVelocity[:2],
-            dtype=torch.float32,
-            device=self.device
-        )
-
         if self.isAlive:
+            self.timeAlive += dt
             self._drainEnergy(dt)
+
+            currentPosition, _ = pybullet.getBasePositionAndOrientation(self.agent)
+            currentVelocity, _ = pybullet.getBaseVelocity(self.agent)
+
+            self.position = torch.tensor(
+                currentPosition[:2],
+                dtype=torch.float32,
+                device=self.device
+            )
+            self.velocity = torch.tensor(
+                currentVelocity[:2],
+                dtype=torch.float32,
+                device=self.device
+            )
+
 
     def applyAction(self, action):
         if not self.isAlive:
@@ -82,7 +84,7 @@ class Agent:
 
         xVelocity = action[0].item()
         yVelocity = action[1].item()
-        if len(action >= 3):
+        if len(action) >= 3:
             sprintSignal = action[2].item()
             self.isSprinting = (sprintSignal > 0.5 and self.energy > self.sprintDrainRate)
         else:
@@ -306,10 +308,6 @@ class Agent:
             [self.position[0].item(), self.position[1].item(), -10],
             [0, 0, 0, 1]
         )
-
-    def stepTime(self, dt):
-        if self.isAlive:
-            self.timeAlive += dt
 
     def getMessageContext(self, predators, prey, visionRadius):
         if self.isPredator:

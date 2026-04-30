@@ -121,6 +121,8 @@ class Simulator:
             )
             self.prey.append(prey)
 
+        self._updateAgents(0.0)
+
         clusterAmount = numpy.random.randint(3, 6)
         for i in range(0, clusterAmount):
             clusterXPos = numpy.random.uniform(-self.arenaSize / 3, self.arenaSize / 3)
@@ -157,12 +159,6 @@ class Simulator:
                     "clusterId" : i
                 })
 
-
-
-        for _ in range(10):
-            pybullet.stepSimulation()
-
-
     def runSimulation(self, predatorNNs, preyNNs, predatorGenotypeIDs = None, preyGenotypeIDs = None):
         self.reset()
 
@@ -180,12 +176,11 @@ class Simulator:
         step                             = 0
 
         while currentTime < self.simDuration:
-            self._updateAgentTime(self.timeStep)
+            # 1. Compute current state
             self._computeDistanceMatrices()
-
-
             self._updateReceivedMessages()
 
+            # 2. Get actions from NNs
             predatorActions = self._getPredatorActions(
                 predatorNNs,
                 predatorGenotypeIDs,
@@ -199,25 +194,32 @@ class Simulator:
                 preyCommMagnitudes
             )
 
+            # 3. Apply actions (agents move)
             self._applyPredatorActions(predatorActions)
             self._applyPreyActions(preyActions)
 
-            self._processCatches(preyCaught, predatorTeamHuntScore)
-            self._updatePreyEating(currentTime)
-
-            self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
-            self._updatePreyGrouping(preyGrouping)
-            self._respawnFood(currentTime)
-
+            # 4. Physics step
             pybullet.stepSimulation()
 
+            # 5. Update agents (time, energy, positions)
+            self._updateAgents(self.timeStep)
+
+            # 6. Food interactions
+            self._updatePreyEating(currentTime)
+
+            # 7. Process outcomes (AFTER physics)
+            self._processCatches(preyCaught, predatorTeamHuntScore)
+            self._updatePredatorTeamHuntScore(predatorTeamHuntScore)
+            self._updatePreyGrouping(preyGrouping)
+
+            # 8. Respawn food
+            self._respawnFood(currentTime)
+
+            # 9. Visualization
             if self.haveGUI and step % 5 == 0:
                 self.visualiseCommunication()
-                #time.sleep(0.00125)
-
             currentTime += self.timeStep
             step += 1
-
         return {
             "predators": [
                 {
@@ -303,6 +305,8 @@ class Simulator:
                     2,
                     dtype = torch.float32
                 )
+                predatorActions.append(None)
+                predatorCommMagnitudes[i].append(0.0)
                 continue
 
             predatorObservation = predator.getObservation(
@@ -665,6 +669,7 @@ class Simulator:
                     rgbaColor = [1.0, 1.0, 1.0, 1.0]
                 )
 
-    def _updateAgentTime(self, dt) -> None:
+    def _updateAgents(self, dt) -> None:
         for agent in self.predators + self.prey:
-            agent.stepTime(dt)
+            agent.updateState(dt)
+

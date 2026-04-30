@@ -137,8 +137,8 @@ class GenerationController:
         )
         self.preyEvolver = Evolver.Evolver(
             tournamentSize = 2,
-            mutationRate   = 0.22,
-            sigma          = 0.1
+            mutationRate   = 0.25,
+            sigma          = 0.2
         )
 
         if self.generationNo == 0:
