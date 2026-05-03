@@ -5,7 +5,7 @@ import time
 import torch
 
 import Agent
-import SimulationConfig
+import SimulationParameters
 import sys
 import os
 
@@ -24,15 +24,36 @@ class SuppressOutput:
         sys.stderr = self._original_stderr
 
 class Simulator:
-    def __init__(self, simConfig=SimulationConfig.SimulationConfig, numPredators=4, numPrey=8, simDuration=30.0, gui=True):
+    def __init__(self, simConfig = SimulationParameters.SimulationConfig, foodConfig = SimulationParameters.FoodConfig, numPredators = 4, numPrey = 8, simDuration = 30.0, gui = True):
         self.numPredators = numPredators
         self.numPrey = numPrey
         self.simDuration = simDuration
         self.haveGUI = gui
 
+        # ARENA DIMENSION PARAMETER(S):
         self.arenaSize           = simConfig.arenaSize
-        self.visionRadius        = simConfig.visionRadius
-        self.communicationRadius = simConfig.communicationRadius
+
+        # RADIAL PARAMETER(S):
+        self.visionRadius               = simConfig.visionRadius
+        self.communicationRadius        = simConfig.communicationRadius
+        self.catchDistance              = simConfig.catchDistance
+        self.eatDistance                = simConfig.eatDistance
+        self.predatorCatchSupportRadius = simConfig.predatorCatchSupportRadius
+        self.predatorTeamHuntRadius     = simConfig.predatorTeamHuntRadius
+
+        # FOOD PARAMETER(S):
+        self.foodSources          = []
+        self.minClusterFood       = simConfig.minClusterFood
+        self.maxClusterFood       = simConfig.maxClusterFood
+        self.preyEnergyValue      = simConfig.preyEnergyValue
+        self.arenaFoodEnergyValue = simConfig.arenaFoodEnergyValue
+        self.foodRadius           = foodConfig.radius
+        self.foodReadyColour      = [1.0, 0.713, 0.756, 1.0]
+        self.foodConsumedColour   = [1.0, 1.0, 1.0, 1.0]
+        self.foodRespawnTime      = foodConfig.respawnTime
+
+        # OTHER PARAMETER(S):
+        self.minRequiredTeamHuntMembers = simConfig.minRequiredTeamMembers
 
         self.timeStep = 1.0 / 120.0
 
@@ -57,15 +78,6 @@ class Simulator:
         self.predToPredDistances = None
         self.predToPreyDistances = None
         self.preyToPreyDistances = None
-
-        self.foodSources          = []
-        self.minClusterFood       = simConfig.minClusterFood
-        self.maxClusterFood       = simConfig.maxClusterFood
-        self.preyEnergyValue      = simConfig.preyEnergyValue
-        self.arenaFoodEnergyValue = simConfig.arenaFoodEnergyValue
-
-        self.catchDistance = simConfig.catchDistance
-        self.eatDistance   = simConfig.eatDistance
 
     def _initSimulator(self):
         self.plane = pybullet.loadURDF("plane.urdf")
@@ -106,7 +118,7 @@ class Simulator:
             predator = Agent.Agent(
                 position=[startingX, startingY],
                 isPredator=True,
-                agentConfig=SimulationConfig.PredatorConfig()
+                agentConfig=SimulationParameters.PredatorConfig()
             )
             self.predators.append(predator)
 
@@ -117,7 +129,7 @@ class Simulator:
             prey = Agent.Agent(
                 position=[startingX, startingY],
                 isPredator=False,
-                agentConfig=SimulationConfig.PreyConfig()
+                agentConfig=SimulationParameters.PreyConfig()
             )
             self.prey.append(prey)
 
@@ -143,20 +155,20 @@ class Simulator:
 
                 foodVisual = pybullet.createVisualShape(
                     shapeType = pybullet.GEOM_SPHERE,
-                    radius = 0.15,
-                    rgbaColor = [1.0, 0.713, 0.756, 1.0]
+                    radius    = 0.15,
+                    rgbaColor = self.foodReadyColour
                 )
                 foodBody = pybullet.createMultiBody(
-                    baseMass = 0,
+                    baseMass             = 0,
                     baseVisualShapeIndex = foodVisual,
-                    basePosition = [xPos, yPos, 0.0],
+                    basePosition         = [xPos, yPos, 0.0],
                 )
                 self.foodSources.append({
-                    "body" : foodBody,
-                    "position" :[xPos, yPos],
-                    "available" : True,
+                    "body"        : foodBody,
+                    "position"    :[xPos, yPos],
+                    "available"   : True,
                     "respawnTime" : 0.0,
-                    "clusterId" : i
+                    "clusterId"   : i
                 })
 
     def runSimulation(self, predatorNNs, preyNNs, predatorGenotypeIDs = None, preyGenotypeIDs = None):
@@ -165,6 +177,7 @@ class Simulator:
         self._initialiseInternalAgentState(predatorNNs, preyNNs)
 
         preyCaught                       = [0] * self.numPredators
+        preyFoodEaten                    = [0] * self.numPrey
         predatorTeamHuntScore            = [0.0] * self.numPredators
 
         predatorCommMagnitudes = [[] for _ in range(self.numPredators)]
@@ -205,7 +218,7 @@ class Simulator:
             self._updateAgents(self.timeStep)
 
             # 6. Food interactions
-            self._updatePreyEating(currentTime)
+            self._updatePreyEating(currentTime, preyFoodEaten)
 
             # 7. Process outcomes (AFTER physics)
             self._processCatches(preyCaught, predatorTeamHuntScore)
@@ -235,6 +248,7 @@ class Simulator:
             ],
             "prey": [
                 {
+                    "foodEaten"                   : preyFoodEaten[i],
                     "timeAlive"                   : self.prey[i].timeAlive,
                     "groupingScore"               : preyGrouping[i] / max(step, 1),
                     "meanCommMagnitude"           : (
@@ -314,7 +328,7 @@ class Simulator:
                 prey         = self.prey,
                 visionRadius = self.visionRadius,
                 foodSources  = self.foodSources
-            ).view(1, 23)
+            ).view(1, 19)
 
             with torch.no_grad():
                 movement, communication, newHidden = predatorNNs[i].forward(
@@ -370,7 +384,7 @@ class Simulator:
                 prey         = self.prey,
                 visionRadius = self.visionRadius,
                 foodSources  = self.foodSources
-            ).view(1, 23)
+            ).view(1, 19)
 
             with torch.no_grad():
                 movement, communication, newHidden = preyNNs[i].forward(
@@ -394,18 +408,18 @@ class Simulator:
             genotypeID = preyGenotypeIDs[i] if preyGenotypeIDs is not None else i
 
             self._logMessageEvent(
-                step = step,
-                species = "prey",
-                genotypeID = genotypeID,
-                agentIndex = i,
-                agent = prey,
-                outgoingMessage = communication,
-                receivedMessage = prey.receivedMessage,
-                movement = movement,
-                nearestEnemyDist = messageContext["nearestEnemyDist"],
-                nearestAllyDist = messageContext["nearestAllyDist"],
+                step              = step,
+                species           = "prey",
+                genotypeID        = genotypeID,
+                agentIndex        = i,
+                agent             = prey,
+                outgoingMessage   = communication,
+                receivedMessage   = prey.receivedMessage,
+                movement          = movement,
+                nearestEnemyDist  = messageContext["nearestEnemyDist"],
+                nearestAllyDist   = messageContext["nearestAllyDist"],
                 visibleEnemyCount = messageContext["visibleEnemyCount"],
-                visibleAllyCount = messageContext["visibleAllyCount"]
+                visibleAllyCount  = messageContext["visibleAllyCount"]
             )
 
             preyActions.append(movement.flatten())
@@ -427,8 +441,6 @@ class Simulator:
             prey.applyAction(action)
 
     def _processCatches(self, preyCaught, predatorTeamHuntScore = None) -> None:
-        catchSupportRadius = 3.0
-
         for i, predator in enumerate(self.predators):
             if not predator.isAlive:
                 continue
@@ -446,7 +458,7 @@ class Simulator:
                             continue
 
                         supportDist = self.predToPreyDistances[k, j].item()
-                        if supportDist <= catchSupportRadius:
+                        if supportDist <= self.predatorCatchSupportRadius:
                             nearbyPredatorIndices.append(k)
 
                     prey.kill()
@@ -514,9 +526,6 @@ class Simulator:
             preyGrouping[i] += groupingCount
 
     def _updatePredatorTeamHuntScore(self, predatorTeamHuntScore) -> None:
-        teamHuntRadius = 3.0
-        minRequiredPredators = 2
-
         for j, prey in enumerate(self.prey):
             if not prey.isAlive:
                 continue
@@ -528,10 +537,10 @@ class Simulator:
                     continue
 
                 dist = self.predToPreyDistances[i, j].item()
-                if dist < teamHuntRadius:
+                if dist < self.predatorTeamHuntRadius:
                     nearbyPredatorIndices.append(i)
 
-            if len(nearbyPredatorIndices) >= minRequiredPredators:
+            if len(nearbyPredatorIndices) >= self.minRequiredTeamHuntMembers:
                 for pIndex in nearbyPredatorIndices:
                     predatorTeamHuntScore[pIndex] += 1.0
 
@@ -630,8 +639,8 @@ class Simulator:
                 )
                 self._messageLineIDs.append(lineID)
 
-    def _updatePreyEating(self, currentTime) -> None:
-        for prey in self.prey:
+    def _updatePreyEating(self, currentTime, preyFoodEaten:list) -> None:
+        for i, prey in enumerate(self.prey):
             if not prey.isAlive:
                 continue
 
@@ -650,12 +659,14 @@ class Simulator:
                 if dist < self.eatDistance:
                     prey.eat(self.arenaFoodEnergyValue)
                     food["available"] = False
-                    food["respawnTime"] = currentTime + 10
+                    food["respawnTime"] = currentTime + self.foodRespawnTime
+
+                    preyFoodEaten[i] += 1
 
                     pybullet.changeVisualShape(
                         food["body"],
                         -1,
-                        rgbaColor = [0.0, 0.0, 0.0, 0.2]
+                        rgbaColor = self.foodConsumedColour
                     )
 
     def _respawnFood(self, currentTime) -> None:
@@ -665,7 +676,7 @@ class Simulator:
                 pybullet.changeVisualShape(
                     food["body"],
                     -1,
-                    rgbaColor = [1.0, 1.0, 1.0, 1.0]
+                    rgbaColor = self.foodReadyColour
                 )
 
     def _updateAgents(self, dt) -> None:

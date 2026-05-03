@@ -1,5 +1,5 @@
 # predator fitness function term weights
-CATCH_REWARD_WEIGHT            = 0
+CATCH_REWARD_WEIGHT            = 150
 TEAM_HUNT_BONUS_WEIGHT         = 300.0
 PREDATOR_COMM_BONUS_WEIGHT     = 1.0
 PREDATOR_ENERGY_BONUS_WEIGHT   = 2.0
@@ -7,6 +7,7 @@ PREDATOR_SURVIVAL_BONUS_WEIGHT = 10.0
 PREDATOR_STARVATION_PENALTY    = -300.0
 
 # prey fitness function term weights
+FOOD_EATEN_WEIGHT          = 100.0
 GROUPING_BONUS_WEIGHT      = 30.0
 PREY_SURVIVAL_BONUS_WEIGHT = 2.0
 PREY_COMM_BONUS_WEIGHT     = 1.0
@@ -61,10 +62,13 @@ def calculatePredatorFitness(predatorTelemetry) -> float:
     return calculatePredatorFitnessBreakdown(predatorTelemetry)["totalFitness"]
 
 def calculatePreyFitnessBreakdown(preyTelemetry) -> dict:
+    foodEaten = preyTelemetry.get("foodEaten", 0)
     timeAlive = preyTelemetry.get("timeAlive", 0.0)
     groupingScore = preyTelemetry.get("groupingScore", 0.0)
     meanCommMagnitude = preyTelemetry.get("meanCommMagnitude", 0.0)
     finalEnergy = preyTelemetry.get("finalEnergy", 0.0)
+
+    eatingReward = foodEaten * FOOD_EATEN_WEIGHT
 
     # Survival: per-second reward (automatically higher if survived full 30s)
     survivalReward = timeAlive * PREY_SURVIVAL_BONUS_WEIGHT
@@ -81,6 +85,7 @@ def calculatePreyFitnessBreakdown(preyTelemetry) -> dict:
         starvationPenalty = PREY_STARVATION_PENALTY
 
     totalFitness = (
+            eatingReward +
             survivalReward +
             groupingBonus +
             commBonus +
@@ -91,6 +96,7 @@ def calculatePreyFitnessBreakdown(preyTelemetry) -> dict:
     totalFitness = max(0.0, totalFitness)
 
     return {
+        "eatingReward" : eatingReward,
         "timeAlive": timeAlive,
         "survivalReward": survivalReward,
         "groupingBonus": groupingBonus,

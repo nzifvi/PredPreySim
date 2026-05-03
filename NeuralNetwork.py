@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass, field
 
-OBSERVATION_SIZE = 23
+OBSERVATION_SIZE = 19
 COMM_IN_SIZE     = 2
 INPUT_SIZE       = OBSERVATION_SIZE + COMM_IN_SIZE
 

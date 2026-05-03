@@ -81,38 +81,39 @@ class Agent:
     def applyAction(self, action):
         if not self.isAlive:
             return
+        xDirection = action[0].item()
+        yDirection = action[1].item()
 
-        xVelocity = action[0].item()
-        yVelocity = action[1].item()
         if len(action) >= 3:
             sprintSignal = action[2].item()
             self.isSprinting = (sprintSignal > 0.5 and self.energy > self.sprintDrainRate)
         else:
             self.isSprinting = False
 
-        xVelocity = torch.clamp(
-            torch.tensor(xVelocity), -5.0, 5.0
-        ).item()
-        yVelocity = torch.clamp(
-            torch.tensor(yVelocity), -5.0, 5.0
-        ).item()
+        magnitude = (xDirection ** 2 + yDirection ** 2) ** 0.5
 
-        speedMultiplier = self.sprintMultiplier if self.isSprinting else 1.0
+        if magnitude > 1e-6:
+            xDirection = xDirection / magnitude
+            yDirection = yDirection / magnitude
+        else:
+            xDirection = 0.0
+            yDirection = 0.0
+
+        forceMultiplier = self.sprintMultiplier if self.isSprinting else 1.0
 
         force = [
-            xVelocity * self.baseSpeed * speedMultiplier,
-            yVelocity * self.baseSpeed * speedMultiplier,
-            0.0 # no z-axis force allowed.
+            xDirection * self.baseSpeed * forceMultiplier,
+            yDirection * self.baseSpeed * forceMultiplier,
+            0.0
         ]
 
         pybullet.applyExternalForce(
             self.agent,
             -1,
-            forceObj=force,
-            posObj=[0, 0, 0],
-            flags=pybullet.LINK_FRAME
+            forceObj = force,
+            posObj   = [0, 0, 0],
+            flags = pybullet.LINK_FRAME
         )
-
         self._applyBoundaryForce()
 
     def _applyBoundaryForce(self):
@@ -173,8 +174,8 @@ class Agent:
         nearestAlly  = self._findNearestEntity(allies, visionRadius)
         nearestEnemy = self._findNearestEntity(enemies, visionRadius)
 
-        avgAllyDirection, visibleAllyCount = self._findAvgDirectionAndCount(allies, visionRadius)
-        avgEnemyDirection, visibleEnemyCount = self._findAvgDirectionAndCount(enemies, visionRadius)
+        visibleAllyCount  = self._countNearbyAgents(allies, visionRadius)
+        visibleEnemyCount = self._countNearbyAgents(enemies, visionRadius)
 
         localNumericalAdvantage = torch.tensor(
             [
@@ -204,8 +205,6 @@ class Agent:
             wallDistances,
             nearestAlly,
             nearestEnemy,
-            avgAllyDirection,
-            avgEnemyDirection,
             torch.tensor([visibleAllyCount], dtype = torch.float32, device = self.device),
             torch.tensor([visibleEnemyCount], dtype = torch.float32, device = self.device),
             localNumericalAdvantage,
@@ -242,8 +241,7 @@ class Agent:
         normalizedDistance = (minDistance / visionRadius).unsqueeze(0)
         return torch.cat([direction, normalizedDistance])
 
-    def _findAvgDirectionAndCount(self, agents:list, visionRadius:float) -> tuple:
-        avgDirection = torch.zeros(2, device=self.device)
+    def _countNearbyAgents(self, agents:list, visionRadius:float) -> int:
         count = 0
 
         for a in agents:
@@ -253,18 +251,10 @@ class Agent:
             distanceDiff = a.position - self.position
             distance = torch.norm(distanceDiff)
 
-            if distance > visionRadius:
-                continue
-            avgDirection += distanceDiff
-            count += 1
+            if distance <= visionRadius:
+                count += 1
 
-        if count > 0:
-            avgDirection /= count
-            avgDirection /= (torch.norm(avgDirection) + 1e-6)
-        else:
-            avgDirection = torch.zeros(2, device=self.device)
-
-        return avgDirection, count
+        return count
 
     def _findNearestFood(self, foodSources, visionRadius) -> torch.tensor:
         nearestFoodPosition = None
@@ -301,11 +291,21 @@ class Agent:
             return torch.cat([direction, normalisedDistance])
 
     def kill(self):
-        self.isAlive = False
+        if not self.isAlive:
+            return
+
+        self.isAlive     = False
+        self.isSprinting = False
+
+        pybullet.resetBaseVelocity(
+            self.agent,
+            linearVelocity = [0, 0, 0],
+            angularVelocity = [0, 0, 0]
+        )
 
         pybullet.resetBasePositionAndOrientation(
             self.agent,
-            [self.position[0].item(), self.position[1].item(), -10],
+            [self.position[0].item(), self.position[1].item(), -999],
             [0, 0, 0, 1]
         )
 

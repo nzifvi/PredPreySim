@@ -42,6 +42,7 @@ def evaluate(args) -> tuple:
     }
     preyTelemetrySums = {
         genotypeID : {
+            "foodEaten"         : 0.0,
             "timeAlive"         : 0.0,
             "groupingScore"     : 0.0,
             "meanCommMagnitude" : 0.0,
@@ -76,6 +77,7 @@ def evaluate(args) -> tuple:
 
                 for i, (genotypeID, _) in enumerate(prey):
                     preyTelemetry = telemetry["prey"][i]
+                    preyTelemetrySums[genotypeID]["foodEaten"] += preyTelemetry["foodEaten"]
                     preyTelemetrySums[genotypeID]["timeAlive"] += preyTelemetry["timeAlive"]
                     preyTelemetrySums[genotypeID]["groupingScore"] += preyTelemetry["groupingScore"]
                     preyTelemetrySums[genotypeID]["meanCommMagnitude"] += preyTelemetry["meanCommMagnitude"]
@@ -415,6 +417,7 @@ class GenerationController:
         }
         idLinkedPreyTelemetry = {
             prey["genotypeID"] : {
+                "foodEaten" : 0.0,
                 "timeAlive" : 0.0,
                 "groupingScore" : 0.0,
                 "meanCommMagnitude" : 0.0,
@@ -441,6 +444,7 @@ class GenerationController:
                 predEvalCounts[gID] += 1
 
             for gID, t in preyTelemetries.items():
+                idLinkedPreyTelemetry[gID]["foodEaten"] += t["foodEaten"]
                 idLinkedPreyTelemetry[gID]["timeAlive"] += t["timeAlive"]
                 idLinkedPreyTelemetry[gID]["groupingScore"] += t["groupingScore"]
                 idLinkedPreyTelemetry[gID]["meanCommMagnitude"] += t.get("meanCommMagnitude", 0.0)  # NEW
@@ -485,6 +489,7 @@ class GenerationController:
             gID = prey["genotypeID"]
 
             preyTelemetry = {
+                "foodEaten" : idLinkedPreyTelemetry[gID]["foodEaten"],
                 "timeAlive": idLinkedPreyTelemetry[gID]["timeAlive"],
                 "groupingScore": idLinkedPreyTelemetry[gID]["groupingScore"],
                 "meanCommMagnitude": idLinkedPreyTelemetry[gID]["meanCommMagnitude"],
@@ -676,6 +681,7 @@ class GenerationController:
                 fieldnames=[
                     "generationNo",
                     "genotypeID",
+                    "foodEaten",
                     "timeAlive",
                     "groupingScore",
                     "meanCommMagnitude",
@@ -688,6 +694,7 @@ class GenerationController:
                 writer.writerow({
                     "generationNo": generationNo,
                     "genotypeID": genotypeID,
+                    "foodEaten" : telemetry["foodEaten"],
                     "timeAlive": telemetry["timeAlive"],
                     "groupingScore": telemetry["groupingScore"],
                     "meanCommMagnitude" : telemetry["meanCommMagnitude"],
