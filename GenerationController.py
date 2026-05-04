@@ -701,45 +701,309 @@ class GenerationController:
                     "finalEnergy" : telemetry["finalEnergy"]
                 })
 
-    def ancestralOpponentContests(self, duration:float = 30.0, sampleRate:int = 10) -> dict:
+    def ancestralOpponentContests(self, duration: float = 30.0, sampleRate: int = 10, savePath: str = None) -> dict:
+        """
+        Tests current generation against ancestral opponents to measure
+        evolutionary progress. Tests both predators and prey separately.
+
+        Args:
+            duration: Simulation duration per match
+            sampleRate: Test against every Nth generation (10 = every 10th)
+            savePath: Optional path to save CSV results
+
+        Returns:
+            Dictionary containing:
+                - currentGeneration: Current gen number
+                - opponentGenerations: List of generations tested
+                - predResults: Per-generation predator metrics
+                - preyResults: Per-generation prey metrics
+                - summary: Overall evolution metrics
+        """
+        print("\n" + "═" * 80)
+        print(f"ANCESTRAL COMPETITION - Generation {self.generationNo}")
+        print("═" * 80)
+
+        # Save current state
         originalPredators = self.currentPredatorGeneration
-        originalPrey      = self.currentPreyGeneration
+        originalPrey = self.currentPreyGeneration
+        originalGenNo = self.generationNo
 
+        # Get available generations
         generations = self._scanGenerations()
-        opponentGenerations = generations[::sampleRate]
+        if not generations:
+            print("! No ancestral generations found")
+            return None
 
-        predPerformance = []
-        preyPerformance = []
+        # Sample generations (always include earliest and current)
+        opponentGenerations = generations[::sampleRate]
+        if generations[0] not in opponentGenerations:
+            opponentGenerations.insert(0, generations[0])
+        if originalGenNo not in opponentGenerations:
+            opponentGenerations.append(originalGenNo)
+
+        print(f"  Testing against {len(opponentGenerations)} ancestral generations")
+        print(f"  Generations: {opponentGenerations}\n")
+
+        # Storage for detailed results
+        predResults = []
+        preyResults = []
 
         for i, opponentGen in enumerate(opponentGenerations):
-            opponentPredators, opponentPrey = self._loadGeneration(opponentGen)
-            self.currentPredatorGeneration = originalPredators
-            self.currentPreyGeneration = opponentPrey
+            print(f"\n  [{i + 1}/{len(opponentGenerations)}] Testing vs Generation {opponentGen}")
+            print("  " + "─" * 76)
 
-            _, predDiagnostics, _, _ = self._runSimulator(duration = duration)
-            predPerformance.append(
-                predDiagnostics["totalFitness"]
-            )
+            # ─────────────────────────────────────────────────────────────
+            # TEST 1: Current Predators vs Ancestral Prey
+            # ─────────────────────────────────────────────────────────────
+            try:
+                _, ancestralPrey = self._loadGeneration(opponentGen)
 
-            self.currentPredatorGeneration = opponentPredators
-            self.currentPreyGeneration = originalPrey
-            _, _, _, preyTelemetry = self._runSimulator(duration = duration)
-            preyFitnesses = []
-            for gID, telemetry in preyTelemetry.items():
-                preyFitnesses.append(FitnessFunctions.calculatePreyFitness(telemetry))
-            preyPerformance.append(
-                sum(preyFitnesses) / len(preyFitnesses)
-            )
+                self.currentPredatorGeneration = originalPredators
+                self.currentPreyGeneration = ancestralPrey
 
+                _, predDiagnostics, predTelemetry, preyTelemetry = self._runSimulator(duration=duration)
+
+                # Calculate individual fitnesses for variance analysis
+                predFitnesses = [
+                    FitnessFunctions.calculatePredatorFitness(t)
+                    for t in predTelemetry.values()
+                ]
+
+                predResult = {
+                    "opponentGeneration": opponentGen,
+                    "avgFitness": sum(predFitnesses) / len(predFitnesses),
+                    "maxFitness": max(predFitnesses),
+                    "minFitness": min(predFitnesses),
+                    "avgCatches": predDiagnostics["catches"],
+                    "avgTeamHunt": predDiagnostics["teamHuntBonus"] / 800.0,  # Reverse weight
+                    "avgSurvival": predDiagnostics["survivalBonus"] / 2.0,  # Reverse weight
+                    "totalFitness": predDiagnostics["totalFitness"],
+                }
+                predResults.append(predResult)
+
+                print(f"    Predators (Gen {originalGenNo}) vs Prey (Gen {opponentGen}):")
+                print(
+                    f"      Avg Catches: {predResult['avgCatches']:>6.2f} | Avg Fitness: {predResult['avgFitness']:>8.2f}")
+
+            except Exception as e:
+                print(f"    ! Error testing predators vs Gen {opponentGen}: {e}")
+                continue
+
+            # ─────────────────────────────────────────────────────────────
+            # TEST 2: Ancestral Predators vs Current Prey
+            # ─────────────────────────────────────────────────────────────
+            try:
+                ancestralPredators, _ = self._loadGeneration(opponentGen)
+
+                self.currentPredatorGeneration = ancestralPredators
+                self.currentPreyGeneration = originalPrey
+
+                _, _, _, preyTelemetry = self._runSimulator(duration=duration)
+
+                # Calculate individual prey fitnesses
+                preyFitnesses = [
+                    FitnessFunctions.calculatePreyFitness(t)
+                    for t in preyTelemetry.values()
+                ]
+
+                # Calculate average food eaten and survival
+                avgFoodEaten = sum(t.get("foodEaten", 0) for t in preyTelemetry.values()) / len(preyTelemetry)
+                avgTimeAlive = sum(t["timeAlive"] for t in preyTelemetry.values()) / len(preyTelemetry)
+                avgGrouping = sum(t["groupingScore"] for t in preyTelemetry.values()) / len(preyTelemetry)
+                survivalRate = sum(1 for t in preyTelemetry.values() if t["timeAlive"] >= duration * 0.95) / len(
+                    preyTelemetry)
+
+                preyResult = {
+                    "opponentGeneration": opponentGen,
+                    "avgFitness": sum(preyFitnesses) / len(preyFitnesses),
+                    "maxFitness": max(preyFitnesses),
+                    "minFitness": min(preyFitnesses),
+                    "avgFoodEaten": avgFoodEaten,
+                    "avgTimeAlive": avgTimeAlive,
+                    "avgGrouping": avgGrouping,
+                    "survivalRate": survivalRate,
+                }
+                preyResults.append(preyResult)
+
+                print(f"    Predators (Gen {opponentGen}) vs Prey (Gen {originalGenNo}):")
+                print(
+                    f"      Avg Food: {preyResult['avgFoodEaten']:>6.2f} | Survival: {preyResult['survivalRate'] * 100:>5.1f}% | Avg Fitness: {preyResult['avgFitness']:>8.2f}")
+
+            except Exception as e:
+                print(f"    ! Error testing prey vs Gen {opponentGen}: {e}")
+                continue
+
+        # Restore original state
         self.currentPredatorGeneration = originalPredators
-        self.currentPreyGeneration     = originalPrey
+        self.currentPreyGeneration = originalPrey
+        self.generationNo = originalGenNo
+
+        # ─────────────────────────────────────────────────────────────
+        # Calculate Summary Statistics
+        # ─────────────────────────────────────────────────────────────
+        summary = self._calculateAncestralSummary(predResults, preyResults, originalGenNo)
+
+        # Print comprehensive summary
+        self._printAncestralSummary(summary, predResults, preyResults)
+
+        # Save to CSV if requested
+        if savePath:
+            self._saveAncestralResults(predResults, preyResults, summary, savePath)
 
         return {
-            "currentGeneration"   : self.generationNo,
-            "opponentGenerations" : opponentGenerations,
-            "predPerformance"     : predPerformance,
-            "preyPerformance"     : preyPerformance
+            "currentGeneration": originalGenNo,
+            "opponentGenerations": opponentGenerations,
+            "predResults": predResults,
+            "preyResults": preyResults,
+            "summary": summary
         }
+
+    def _calculateAncestralSummary(self, predResults, preyResults, currentGen) -> dict:
+        """Calculate evolutionary progress metrics from ancestral results."""
+        if not predResults or not preyResults:
+            return {}
+
+        # Get oldest and current performance
+        oldestPred = predResults[0]
+        currentPred = predResults[-1]
+        oldestPrey = preyResults[0]
+        currentPrey = preyResults[-1]
+
+        # Calculate improvements (how much current dominates ancestors)
+        predImprovement = {
+            "fitnessGain": currentPred["avgFitness"] - oldestPred["avgFitness"],
+            "fitnessGainPct": ((currentPred["avgFitness"] / max(1.0, oldestPred["avgFitness"])) - 1) * 100,
+            "catchesGain": currentPred["avgCatches"] - oldestPred["avgCatches"],
+            "teamHuntGain": currentPred["avgTeamHunt"] - oldestPred["avgTeamHunt"],
+        }
+
+        preyImprovement = {
+            "fitnessGain": currentPrey["avgFitness"] - oldestPrey["avgFitness"],
+            "fitnessGainPct": ((currentPrey["avgFitness"] / max(1.0, oldestPrey["avgFitness"])) - 1) * 100,
+            "foodGain": currentPrey["avgFoodEaten"] - oldestPrey["avgFoodEaten"],
+            "survivalGain": currentPrey["survivalRate"] - oldestPrey["survivalRate"],
+            "groupingGain": currentPrey["avgGrouping"] - oldestPrey["avgGrouping"],
+        }
+
+        # Calculate "Red Queen" coefficient
+        # If both improving equally, ratio = 1.0 (balanced arms race)
+        # If predator improving faster, ratio > 1.0
+        # If prey improving faster, ratio < 1.0
+        redQueenRatio = (predImprovement["fitnessGainPct"] + 1e-6) / (preyImprovement["fitnessGainPct"] + 1e-6)
+
+        return {
+            "currentGeneration": currentGen,
+            "oldestGenerationTested": predResults[0]["opponentGeneration"],
+            "predImprovement": predImprovement,
+            "preyImprovement": preyImprovement,
+            "redQueenRatio": redQueenRatio,
+        }
+
+    def _printAncestralSummary(self, summary, predResults, preyResults):
+        """Print comprehensive summary of ancestral competition."""
+        if not summary:
+            print("\n  ! Insufficient data for summary")
+            return
+
+        print("\n" + "═" * 80)
+        print("EVOLUTIONARY PROGRESS SUMMARY")
+        print("═" * 80)
+
+        pred = summary["predImprovement"]
+        prey = summary["preyImprovement"]
+
+        print(f"\n  Comparing Gen {summary['oldestGenerationTested']} → Gen {summary['currentGeneration']}")
+        print(f"  ({summary['currentGeneration'] - summary['oldestGenerationTested']} generations of evolution)")
+
+        print("\n" + "─" * 80)
+        print("PREDATOR EVOLUTION")
+        print("─" * 80)
+        print(f"  Fitness Improvement:    {pred['fitnessGain']:>+8.2f} ({pred['fitnessGainPct']:>+6.1f}%)")
+        print(f"  Catches Improvement:    {pred['catchesGain']:>+8.2f}")
+        print(f"  Team Hunt Improvement:  {pred['teamHuntGain']:>+8.2f}")
+
+        print("\n" + "─" * 80)
+        print("PREY EVOLUTION")
+        print("─" * 80)
+        print(f"  Fitness Improvement:    {prey['fitnessGain']:>+8.2f} ({prey['fitnessGainPct']:>+6.1f}%)")
+        print(f"  Food Eating Improvement:{prey['foodGain']:>+8.2f}")
+        print(f"  Survival Rate Change:   {prey['survivalGain'] * 100:>+8.2f}%")
+        print(f"  Grouping Improvement:   {prey['groupingGain']:>+8.2f}")
+
+        print("\n" + "─" * 80)
+        print("RED QUEEN DYNAMICS")
+        print("─" * 80)
+        rq = summary["redQueenRatio"]
+        if 0.8 <= rq <= 1.25:
+            status = "✓ BALANCED ARMS RACE"
+        elif rq > 1.25:
+            status = "⚠ PREDATORS DOMINATING"
+        else:
+            status = "⚠ PREY DOMINATING"
+        print(f"  Red Queen Ratio: {rq:>6.2f} → {status}")
+        print("  (Ratio of predator improvement to prey improvement)")
+        print("  Ideal: 0.8-1.25 (both species co-evolving)")
+
+        # Per-generation table
+        print("\n" + "─" * 80)
+        print("PER-GENERATION RESULTS")
+        print("─" * 80)
+        print(
+            f"  {'Gen':>5} | {'Pred Fit':>10} | {'Pred Catch':>10} | {'Prey Fit':>10} | {'Prey Food':>10} | {'Survival':>9}")
+        print("  " + "─" * 76)
+
+        for pred, prey in zip(predResults, preyResults):
+            print(f"  {pred['opponentGeneration']:>5} | "
+                  f"{pred['avgFitness']:>10.2f} | "
+                  f"{pred['avgCatches']:>10.2f} | "
+                  f"{prey['avgFitness']:>10.2f} | "
+                  f"{prey['avgFoodEaten']:>10.2f} | "
+                  f"{prey['survivalRate'] * 100:>8.1f}%")
+
+        print("═" * 80 + "\n")
+
+    def _saveAncestralResults(self, predResults, preyResults, summary, savePath):
+        """Save ancestral competition results to CSV files."""
+        os.makedirs(savePath, exist_ok=True)
+
+        # Save predator results
+        predPath = os.path.join(savePath, f"ancestralPredators_Gen{summary['currentGeneration']}.csv")
+        with open(predPath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "opponentGeneration", "avgFitness", "maxFitness", "minFitness",
+                "avgCatches", "avgTeamHunt", "avgSurvival", "totalFitness"
+            ])
+            writer.writeheader()
+            writer.writerows(predResults)
+
+        # Save prey results
+        preyPath = os.path.join(savePath, f"ancestralPrey_Gen{summary['currentGeneration']}.csv")
+        with open(preyPath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "opponentGeneration", "avgFitness", "maxFitness", "minFitness",
+                "avgFoodEaten", "avgTimeAlive", "avgGrouping", "survivalRate"
+            ])
+            writer.writeheader()
+            writer.writerows(preyResults)
+
+        # Save summary
+        summaryPath = os.path.join(savePath, f"ancestralSummary_Gen{summary['currentGeneration']}.csv")
+        with open(summaryPath, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Metric", "Value"])
+            writer.writerow(["Current Generation", summary["currentGeneration"]])
+            writer.writerow(["Oldest Generation Tested", summary["oldestGenerationTested"]])
+            writer.writerow(["Predator Fitness Gain", summary["predImprovement"]["fitnessGain"]])
+            writer.writerow(["Predator Fitness Gain %", summary["predImprovement"]["fitnessGainPct"]])
+            writer.writerow(["Predator Catches Gain", summary["predImprovement"]["catchesGain"]])
+            writer.writerow(["Predator Team Hunt Gain", summary["predImprovement"]["teamHuntGain"]])
+            writer.writerow(["Prey Fitness Gain", summary["preyImprovement"]["fitnessGain"]])
+            writer.writerow(["Prey Fitness Gain %", summary["preyImprovement"]["fitnessGainPct"]])
+            writer.writerow(["Prey Food Gain", summary["preyImprovement"]["foodGain"]])
+            writer.writerow(["Prey Survival Gain", summary["preyImprovement"]["survivalGain"]])
+            writer.writerow(["Red Queen Ratio", summary["redQueenRatio"]])
+
+        print(f"\n  ✓ Results saved to {savePath}")
 
     def _scanGenerations(self) -> list:
         generations = []

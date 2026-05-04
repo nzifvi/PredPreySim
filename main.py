@@ -748,5 +748,5 @@ def analyze_latest_generation(gen_no=None):
 
 if __name__ == "__main__":
     train(
-        duration = 45.0
+        duration=45.0
     )
